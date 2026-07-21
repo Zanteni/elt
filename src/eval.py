@@ -1,0 +1,1 @@
+# every K steps compute FID (val images and generated images)
