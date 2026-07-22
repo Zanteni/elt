@@ -1,1 +1,307 @@
-# define components, define models (normal, looped, elastic looped, ...), build models
+"""
+VAE-stage skeleton - Stage 1 of elt-baseline.
+Two model variants share this file: RoPE-ViT-VAE (priority) and sincos-ViT-VAE.
+Fill in top-down: patchify -> patch embed -> pos-encoding -> attention -> blocks -> VAE.
+
+Ownership convention: VAEEncoder and VAEDecoder each build and own their own
+rope_cache_2d (registered as a buffer in __init__), since they may operate on
+different spatial grids. Neither forward() takes rope_cache_2d as an argument
+from outside -- it's threaded internally to the backbone/blocks/attention.
+"""
+
+import torch
+import torch.nn as nn
+
+
+# ---------------------------------------------------------------------------
+# 1. Patchify / Unpatchify
+# ---------------------------------------------------------------------------
+
+def patchify(x: torch.Tensor, patch_size: int) -> torch.Tensor:
+    """
+    Reused from MAE, adapted for latent channel count.
+    x: (B, C, H, W) -> (B, N, patch_dim), N=(H/P)*(W/P), patch_dim=C*P*P
+    """
+    assert x.ndim ==3 or x.ndim==4,f"EXpected 3D or 4D tensor,got {x.ndim}."
+    if x.ndim ==3:
+        x = x.unsqueeze(0)
+    B,C,H,W = x.shape
+    assert H%patch_size == 0,f"H must be divided by the patch size ,got H:{H}, P:{patch_size}"
+    assert W%patch_size == 0,f"H must be divided by the patch size ,got H:{H}, P:{patch_size}"
+    N = (W//patch_size)*(H//patch_size)
+    d_patch = patch_size**2*C
+    x = x.reshape(B,C,H//patch_size,patch_size,W//patch_size,patch_size)
+    x = x.permute(0,2,4,3,5,1)
+    x=x.reshape(B,N,d_patch).contiguous()
+    return x
+
+
+def unpatchify(x: torch.Tensor, patch_size: int, out_channels: int, h: int, w: int) -> torch.Tensor:
+    """(B, N, patch_dim) -> (B, C, H, W). Inverse of patchify."""
+
+    assert x.ndim ==3 or x.ndim==2,f"EXpected 2D or 3D tensor,got {x.ndim}."
+    if x.ndim == 2:
+        x = x.unsqueeze(0)
+    B,N,patch_dim = x.shape
+    assert patch_dim%out_channels ==0,f"The patch_dim must be devided by the output_chanels,got C:{out_channels},patch_dim:{patch_dim}."
+    assert h%patch_size == 0,f"H must be divided by the patch size ,got H:{h}, P:{patch_size}"
+    assert w%patch_size == 0,f"H must be divided by the patch size ,got W:{w}, P:{patch_size}"
+    assert (h//patch_size)*(w//patch_size) == N,f" the height,width and the patch  size should give the same number of token as the input ,gotH:{h},W:{w}, P:{patch_size} and N:{N} "
+    x = x.reshape(B,h//patch_size,w//patch_size,patch_size,patch_size,out_channels)
+    x = x.permute(0,5,1,3,2,4)
+    x = x.reshape(B,out_channels,h,w).contiguous()
+    return x
+
+
+
+# ---------------------------------------------------------------------------
+# 2. Patch Embedding / Patch Projection
+# ---------------------------------------------------------------------------
+
+class PatchEmbed(nn.Module):
+    """Linear: patch_dim -> d_model. Start of VAEEncoder, right after patchify."""
+    def __init__(self, patch_dim: int, d_model: int):
+        super().__init__()
+        self.embed = nn.Linear(in_features=patch_dim,out_features=d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.embed(x)
+
+
+class PatchProj(nn.Module):
+    """
+    Linear: d_model -> patch_dim. Inverse of PatchEmbed -- param order swapped
+    (d_model first, patch_dim second) so the signature signals direction.
+    End of VAEDecoder, right before unpatchify.
+    """
+    def __init__(self, d_model: int, patch_dim: int):
+        super().__init__()
+        self.proj = nn.Linear(in_features=d_model,
+                              out_features=patch_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.proj(x)
+    
+
+
+# ---------------------------------------------------------------------------
+# 3. Positional Encoding -- TWO variants (config-switched, not stacked)
+# ---------------------------------------------------------------------------
+
+def build_2d_sincos_pos_embed(d_model: int, grid_h: int, grid_w: int) -> torch.Tensor:
+    """
+    (grid_h*grid_w, d_model). Added right after PatchEmbed, before first block,
+    only when attention_type == 'mha'. Skipped entirely for 'rope'.
+    """
+    raise NotImplementedError
+
+
+def build_rope_cache(dim: int, seq_len: int, base: float = 10000.0) -> torch.Tensor:
+    """1D RoPE primitive, called per-axis inside build_rope_cache_2d."""
+    raise NotImplementedError
+
+
+def rotate_half(x: torch.Tensor) -> torch.Tensor:
+    raise NotImplementedError
+
+
+def apply_rope(x: torch.Tensor, rope_cache: torch.Tensor) -> torch.Tensor:
+    """Applies 1D rope to one axis's slice of head_dim."""
+    raise NotImplementedError
+
+
+def build_2d_positions(grid_h: int, grid_w: int) -> torch.Tensor:
+    """(grid_h*grid_w, 2) row/col index per patch."""
+    raise NotImplementedError
+
+
+def build_rope_cache_2d(dim: int, grid_h: int, grid_w: int, base: float = 10000.0):
+    """
+    Axial 2D RoPE: build_rope_cache() x2 (per axis) + build_2d_positions().
+    Called once in VAEEncoder.__init__ and once in VAEDecoder.__init__ --
+    each owns its own cache (grids may differ).
+    """
+    raise NotImplementedError
+
+
+def apply_rope_2d(x: torch.Tensor, rope_cache_2d) -> torch.Tensor:
+    """Rotates first half of head_dim with row rope, second half with col rope."""
+    raise NotImplementedError
+
+
+# ---------------------------------------------------------------------------
+# 4. Attention Modules
+# ---------------------------------------------------------------------------
+
+# --- 4.1 Attention Utilities ---
+
+class QKVProjection(nn.Module):
+    def __init__(self, d_model: int):
+        super().__init__()
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor):
+        """x: (B, N, d_model) -> q, k, v each (B, N, d_model)"""
+        raise NotImplementedError
+
+
+def split_heads(x: torch.Tensor, n_heads: int) -> torch.Tensor:
+    """(B, N, d_model) -> (B, n_heads, N, head_dim)"""
+    raise NotImplementedError
+
+
+def merge_heads(x: torch.Tensor) -> torch.Tensor:
+    """(B, n_heads, N, head_dim) -> (B, N, d_model)"""
+    raise NotImplementedError
+
+
+def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,mask=None) -> torch.Tensor:
+    """softmax(qk^T / sqrt(head_dim)) @ v -- no mask needed (VAE, non-causal)."""
+    raise NotImplementedError
+
+
+class MultiHeadAttention(nn.Module):
+    """Vanilla MHA -- sin-cos model variant. Uses QKVProjection, split_heads,
+    scaled_dot_product_attention, merge_heads."""
+    def __init__(self, d_model: int, n_heads: int):
+        super().__init__()
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+
+
+class RoPEAttention(nn.Module):
+    """MHA + RoPE on q,k before the dot-product -- PRIORITY variant. Same
+    utilities as MultiHeadAttention, plus apply_rope_2d() after split_heads."""
+    def __init__(self, d_model: int, n_heads: int):
+        super().__init__()
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor, rope_cache_2d) -> torch.Tensor:
+        raise NotImplementedError
+
+
+SUPPORTED_ATTENTIONS = {
+    "mha": MultiHeadAttention,
+    "rope": RoPEAttention,
+    # "gqa": GroupedHeadAttention  -- DEFERRED
+}
+
+SUPPORTED_POSITION_ENCODINGS = {
+    "sincos": build_2d_sincos_pos_embed,
+    "rope": build_rope_cache_2d,
+}
+# GroupedHeadAttention (GQA): DEFERRED. Orthogonal to position-encoding choice;
+# adds a third variable to an already two-model comparison. Revisit post-baseline.
+
+
+# ---------------------------------------------------------------------------
+# 5. Transformer Components
+# ---------------------------------------------------------------------------
+
+class MLP(nn.Module):
+    """
+    NOTE: in_dim must equal out_dim when used inside TransformerBlock (residual
+    add x + mlp(x)). Split signature kept for reuse outside the block only.
+    """
+    def __init__(self, in_dim: int, out_dim: int, mlp_ratio: float = 4.0):
+        super().__init__()
+        hidden_dim = int(in_dim * mlp_ratio)
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        raise NotImplementedError
+
+
+class TransformerBlock(nn.Module):
+    """attention_type: 'mha' | 'rope', selected via SUPPORTED_ATTENTIONS."""
+    def __init__(self, d_model: int, n_heads: int, attention_type: str, mlp_ratio: float = 4.0):
+        super().__init__()
+        # attn = SUPPORTED_ATTENTIONS[attention_type](d_model, n_heads)
+        # mlp = MLP(d_model, d_model, mlp_ratio)  -- in_dim==out_dim, required for residual
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor, rope_cache_2d=None) -> torch.Tensor:
+        """'mha': self.attn(x). 'rope': self.attn(x, rope_cache_2d) -- must not be None."""
+        raise NotImplementedError
+
+
+class TransformerBackbone(nn.Module):
+    def __init__(self, d_model: int, n_heads: int, depth: int, attention_type: str):
+        super().__init__()
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+        """kwargs forwards rope_cache_2d to each TransformerBlock when attention_type=='rope'."""
+        raise NotImplementedError
+
+
+# ---------------------------------------------------------------------------
+# 6. VAE
+# ---------------------------------------------------------------------------
+
+class VAEEncoder(nn.Module):
+    """
+    patchify -> PatchEmbed -> (+sincos pos_embed if 'mha') -> TransformerBackbone
+    -> mu_logvar_head -> split into mu, logvar.
+    Owns rope_cache_2d: built once in __init__, registered as buffer.
+    """
+    def __init__(self, config):
+        super().__init__()
+        # self.patch_embed = PatchEmbed(patch_dim, d_model)
+        # if 'mha': register_buffer sincos pos_embed
+        # if 'rope': self.register_buffer('rope_cache_2d', build_rope_cache_2d(...))
+        # self.backbone = TransformerBackbone(d_model, n_heads, depth, attention_type)
+        # self.mu_logvar_head = nn.Linear(d_model, 2 * latent_dim)
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor):
+        """
+        x: (B, C, H, W) -> mu, logvar, each (B, N, latent_dim)
+        patchify -> patch_embed -> (+pos_embed if mha) -> backbone(..., rope_cache_2d=self.rope_cache_2d)
+        -> mu, logvar = mu_logvar_head(x).chunk(2, dim=-1)
+        """
+        raise NotImplementedError
+
+
+class VAEDecoder(nn.Module):
+    """
+    z -> latent_proj -> (+sincos pos_embed if 'mha') -> TransformerBackbone
+    -> PatchProjection -> unpatchify.
+    Owns its own rope_cache_2d (separate buffer from VAEEncoder's).
+    """
+    def __init__(self, config):
+        super().__init__()
+        # self.latent_proj = nn.Linear(latent_dim, d_model)
+        # if 'mha': register_buffer sincos pos_embed
+        # if 'rope': self.register_buffer('rope_cache_2d', build_rope_cache_2d(...))
+        # self.backbone = TransformerBackbone(d_model, n_heads, depth, attention_type)
+        # self.patch_proj = PatchProjection(d_model, patch_dim)
+        raise NotImplementedError
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        """
+        z: (B, N, latent_dim) -> (B, C, H, W)
+        latent_proj -> (+pos_embed if mha) -> backbone(..., rope_cache_2d=self.rope_cache_2d)
+        -> patch_proj -> unpatchify
+        """
+        raise NotImplementedError
+
+
+def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+    """z = mu + eps * std, eps ~ N(0,1)"""
+    raise NotImplementedError
+
+
+class VAE(nn.Module):
+    """Wraps VAEEncoder + reparameterize + VAEDecoder. attention_type set via config."""
+    def __init__(self, config):
+        super().__init__()
+        # self.encoder = VAEEncoder(config); self.decoder = VAEDecoder(config)
+        raise NotImplementedError
+
+    def forward(self, x: torch.Tensor):
+        """Returns: recon, mu, logvar"""
+        # mu, logvar = self.encoder(x); z = reparameterize(mu, logvar); recon = self.decoder(z)
+        raise NotImplementedError

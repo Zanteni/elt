@@ -1,0 +1,34 @@
+# DiT: 
+
+# setup: simple data, 150-200k no lr / wd scheds, 
+
+
+
+model:
+  image_size: 256
+  patch_size: 16
+  in_channels: 3
+
+transformer:
+  embed_dim: 768
+  depth: 12
+  num_heads: 12
+  mlp_ratio: 4
+
+attention:
+  type: rope
+  rope:
+  type: "1d"
+
+vae:
+  latent_dim: 32
+  beta: 0.25
+
+diffusion:
+  timesteps: 1000
+  prediction_type: epsilon
+
+train:
+  stage: vae
+  epochs: 200
+  batch_size: 64
