@@ -109,8 +109,10 @@ def build_rope_cache(dim: int, seq_len: int, base: float = 10000.0):
     return cos, sin
 
 def rotate_half(x: torch.Tensor) -> torch.Tensor:
-    raise NotImplementedError
-
+    assert x.shape[-1] % 2 == 0, f"last dim must be even, got {x.shape[-1]}"
+    x1, x2 = x.chunk(2, dim=-1)
+    return torch.cat([-x2, x1], dim=-1)
+    
 
 def apply_rope(x: torch.Tensor, rope_cache: torch.Tensor) -> torch.Tensor:
     """Applies 1D rope to one axis's slice of head_dim."""
