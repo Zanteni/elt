@@ -281,13 +281,45 @@ class MultiHeadAttention(nn.Module):
 class RoPEAttention(nn.Module):
     """MHA + RoPE on q,k before the dot-product -- PRIORITY variant. Same
     utilities as MultiHeadAttention, plus apply_rope_2d() after split_heads."""
-    def __init__(self, d_model: int, n_heads: int):
+    def __init__(self, d_model: int, n_heads: int,grid_h:int,grid_w:int):
         super().__init__()
-        raise NotImplementedError
+        self.n_heads = n_heads
+        self.qkv_proj = QKVProjection(d_model=d_model)
+        self.out_proj = nn.Linear(in_features=d_model,out_features=d_model)
+        assert d_model%n_heads == 0,f"d_model must be divided by n_head"
+        head_dim = d_model//n_heads
+        cos_cache, sin_cache = build_rope_cache_2d(
+            dim=head_dim,
+            grid_h=grid_h,
+            grid_w=grid_w
+        )
 
-    def forward(self, x: torch.Tensor, rope_cache_2d) -> torch.Tensor:
-        raise NotImplementedError
 
+        self.register_buffer(
+            "cos_cache",
+            cos_cache,
+            persistent=False
+        )
+
+        self.register_buffer(
+            "sin_cache",
+            sin_cache,
+            persistent=False
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        q, k, v = self.qkv_proj(x)
+        q = split_heads(q, self.n_heads)
+        k = split_heads(k, self.n_heads)
+        v = split_heads(v, self.n_heads)
+        q_rotated = apply_rope_2d(x=q,cos=self.cos_cache,sin=self.sin_cache)
+        k_rotated = apply_rope_2d(x=k,cos=self.cos_cache,sin=self.sin_cache)
+        out = scaled_dot_product_attention(q_rotated, k_rotated, v)
+        out = merge_heads(out)
+        out = self.out_proj(out)
+        return out
+
+        
 
 SUPPORTED_ATTENTIONS = {
     "mha": MultiHeadAttention,
