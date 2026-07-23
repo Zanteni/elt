@@ -4,3 +4,4 @@ checkpoints/
 temp/
 .venv/
 .vscode/
+src/0*_test_*.py
