@@ -11,6 +11,7 @@ from outside -- it's threaded internally to the backbone/blocks/attention.
 
 import torch
 import torch.nn as nn
+import  math
 
 
 # ---------------------------------------------------------------------------
@@ -134,30 +135,49 @@ def apply_rope_2d(x: torch.Tensor, rope_cache_2d) -> torch.Tensor:
 # ---------------------------------------------------------------------------
 
 # --- 4.1 Attention Utilities ---
-
-class QKVProjection(nn.Module):
-    def __init__(self, d_model: int):
-        super().__init__()
-        raise NotImplementedError
-
-    def forward(self, x: torch.Tensor):
-        """x: (B, N, d_model) -> q, k, v each (B, N, d_model)"""
-        raise NotImplementedError
-
-
 def split_heads(x: torch.Tensor, n_heads: int) -> torch.Tensor:
     """(B, N, d_model) -> (B, n_heads, N, head_dim)"""
-    raise NotImplementedError
+    assert x.ndim == 3, f"Expected 3D tensor, got {x.ndim}."
+    B, N, d_model = x.shape
+    assert d_model % n_heads == 0, f"The d_model must divided by n_head: got d_model:{d_model}, n_head:{n_heads}"
+    head_dim = d_model // n_heads
+    x = x.reshape(B, N, n_heads, head_dim)
+    x = x.permute(0, 2, 1, 3).contiguous()
+    return x
 
 
 def merge_heads(x: torch.Tensor) -> torch.Tensor:
     """(B, n_heads, N, head_dim) -> (B, N, d_model)"""
-    raise NotImplementedError
+    assert x.ndim == 4, f"Expected 4D tensor, got {x.ndim}."
+    B, n_heads, N, head_dim = x.shape
+    x = x.permute(0, 2, 1, 3)
+    x = x.reshape(B, N, head_dim * n_heads).contiguous()
+    return x
 
 
-def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,mask=None) -> torch.Tensor:
-    """softmax(qk^T / sqrt(head_dim)) @ v -- no mask needed (VAE, non-causal)."""
-    raise NotImplementedError
+class QKVProjection(nn.Module):
+    def __init__(self, d_model: int):
+        super().__init__()
+        self.qkv = nn.Linear(in_features=d_model, out_features=3 * d_model)
+
+    def forward(self, x: torch.Tensor):
+        """x: (B, N, d_model) -> q, k, v each (B, N, d_model)"""
+        assert x.ndim == 3, f"Expected 3D tensor, got {x.ndim}."
+        qkv = self.qkv(x)
+        q, k, v = qkv.chunk(3, dim=-1)
+        return q, k, v
+    
+def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask=None) -> torch.Tensor:
+    """softmax(qk^T / sqrt(head_dim)) @ v -- mask unused for VAE (non-causal), kept for API parity."""
+    logits = q @ k.transpose(3, 2)
+    _, _, _, d_head = q.shape
+    scale = d_head ** (-0.5)
+    logits = logits * scale
+    if mask is not None:
+        logits = logits.masked_fill(mask == 0, -float("inf"))
+    attn = torch.softmax(logits, dim=-1)
+    out = attn @ v
+    return out
 
 
 class MultiHeadAttention(nn.Module):
