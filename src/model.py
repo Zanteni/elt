@@ -185,10 +185,19 @@ class MultiHeadAttention(nn.Module):
     scaled_dot_product_attention, merge_heads."""
     def __init__(self, d_model: int, n_heads: int):
         super().__init__()
-        raise NotImplementedError
+        self.n_heads = n_heads
+        self.qkv_proj = QKVProjection(d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
+        q, k, v = self.qkv_proj(x)
+        q = split_heads(q, self.n_heads)
+        k = split_heads(k, self.n_heads)
+        v = split_heads(v, self.n_heads)
+        out = scaled_dot_product_attention(q, k, v)
+        out = merge_heads(out)
+        out = self.out_proj(out)
+        return out
 
 
 class RoPEAttention(nn.Module):
