@@ -286,22 +286,12 @@ class MultiHeadAttention(nn.Module):
 class RoPEAttention(nn.Module):
     """MHA + RoPE on q,k before the dot-product -- PRIORITY variant. Same
     utilities as MultiHeadAttention, plus apply_rope_2d() after split_heads."""
-    def __init__(self, d_model: int, n_heads: int,grid_h:int,grid_w:int,dropout:float=0.0,bias = True,causal = False):
+    def __init__(self, d_model: int, n_heads: int,grid_h:int,grid_w:int,dropout:float=0.0,bias = True):
         super().__init__()
         self.n_heads = n_heads
         self.dropout = dropout
         self.grid_h = grid_h
         self.grid_w = grid_w
-
-        self.causal = causal
-        if self.causal:
-            N= self.grid_h * self.grid_w
-        
-            causal_mask = torch.tril(torch.ones(N, N))
-        
-            self.register_buffer("causal_mask",causal_mask,persistent=False)
-        else:
-            self.causal_mask = None
 
         self.attn_dropout = nn.Dropout(dropout)
         self.qkv_proj = QKVProjection(d_model=d_model)
@@ -335,7 +325,7 @@ class RoPEAttention(nn.Module):
         v = split_heads(v, self.n_heads)
         q_rotated = apply_rope_2d(x=q,cos=self.cos_cache,sin=self.sin_cache)
         k_rotated = apply_rope_2d(x=k,cos=self.cos_cache,sin=self.sin_cache)
-        out = scaled_dot_product_attention(q_rotated, k_rotated, v,dropout=self.attn_dropout,mask=self.causal_mask)
+        out = scaled_dot_product_attention(q_rotated, k_rotated, v,dropout=self.attn_dropout)
         out = merge_heads(out)
         out = self.out_proj(out)
         return out
