@@ -355,14 +355,20 @@ class MLP(nn.Module):
     NOTE: in_dim must equal out_dim when used inside TransformerBlock (residual
     add x + mlp(x)). Split signature kept for reuse outside the block only.
     """
-    def __init__(self, in_dim: int, out_dim: int, mlp_ratio: float = 4.0):
+    def __init__(self, in_dim: int, out_dim: int, mlp_ratio: float = 4.0,dropout: float = 0.0):
         super().__init__()
         hidden_dim = int(in_dim * mlp_ratio)
-        raise NotImplementedError
+        self.ffn = nn.Sequential(
+            nn.Linear(in_features=in_dim,out_features=hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(in_features=hidden_dim,out_features=out_dim),
+            nn.Dropout(dropout)
+        )
+        
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
-
+        return self.ffn(x)
 
 class TransformerBlock(nn.Module):
     """attention_type: 'mha' | 'rope', selected via SUPPORTED_ATTENTIONS."""
