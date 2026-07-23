@@ -114,10 +114,21 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
     return torch.cat([-x2, x1], dim=-1)
     
 
-def apply_rope(x: torch.Tensor, rope_cache: torch.Tensor) -> torch.Tensor:
-    """Applies 1D rope to one axis's slice of head_dim."""
-    raise NotImplementedError
+def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    """Applies 1D rope to one axis's slice of head_dim.
+    x: (B, n_heads, N, head_dim). cos/sin: (seq_len, head_dim//2) from build_rope_cache,
+    where seq_len == N and head_dim//2 == x's last-dim // 2."""
+    assert x.ndim == 4, f"Expected 4D tensor, got {x.ndim}D"
+    B, n_heads, N, head_dim = x.shape
+    assert cos.shape[-1] == head_dim // 2, f"Expected cos last dim {head_dim // 2}, got {cos.shape}"
+    assert sin.shape[-1] == head_dim // 2, f"Expected sin last dim {head_dim // 2}, got {sin.shape}"
 
+    cos = torch.cat([cos, cos], dim=-1).unsqueeze(0).unsqueeze(0)  # (1, 1, N, head_dim)
+    sin = torch.cat([sin, sin], dim=-1).unsqueeze(0).unsqueeze(0)
+
+    rot = rotate_half(x)
+    return x * cos + rot * sin
+    
 
 def build_2d_positions(grid_h: int, grid_w: int) -> torch.Tensor:
     """(grid_h*grid_w, 2) row/col index per patch."""
