@@ -96,11 +96,17 @@ def build_2d_sincos_pos_embed(d_model: int, grid_h: int, grid_w: int) -> torch.T
     """
     raise NotImplementedError
 
-
-def build_rope_cache(dim: int, seq_len: int, base: float = 10000.0) -> torch.Tensor:
-    """1D RoPE primitive, called per-axis inside build_rope_cache_2d."""
-    raise NotImplementedError
-
+def build_rope_cache(dim: int, seq_len: int, base: float = 10000.0):
+    """1D RoPE primitive, called per-axis inside build_rope_cache_2d.
+    Returns: (cos, sin), each (seq_len, dim//2)."""
+    assert dim % 2 == 0, "the dimension must be even."
+    i = torch.arange(0, dim, 2, dtype=torch.float32)          
+    inv_freq = 1.0 / (base ** (i / dim))                       
+    positions = torch.arange(seq_len, dtype=torch.float32)     
+    theta = torch.outer(positions, inv_freq)                  
+    cos = torch.cos(theta)
+    sin = torch.sin(theta)
+    return cos, sin
 
 def rotate_half(x: torch.Tensor) -> torch.Tensor:
     raise NotImplementedError
