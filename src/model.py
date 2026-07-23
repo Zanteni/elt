@@ -245,8 +245,9 @@ class QKVProjection(nn.Module):
         q, k, v = qkv.chunk(3, dim=-1)
         return q, k, v
     
-def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask=None) -> torch.Tensor:
-    """softmax(qk^T / sqrt(head_dim)) @ v -- mask unused for VAE (non-causal), kept for API parity."""
+def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask=None,dropout=None) -> torch.Tensor:
+    """softmax(qk^T / sqrt(head_dim)) @ v -- mask unused for VAE (non-causal), kept for API parity
+    dropout is applied on attention probabilities after softmax.."""
     logits = q @ k.transpose(3, 2)
     _, _, _, d_head = q.shape
     scale = d_head ** (-0.5)
@@ -254,6 +255,8 @@ def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tens
     if mask is not None:
         logits = logits.masked_fill(mask == 0, -float("inf"))
     attn = torch.softmax(logits, dim=-1)
+    if dropout:
+        attn = dropout(attn)
     out = attn @ v
     return out
 
@@ -261,9 +264,11 @@ def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tens
 class MultiHeadAttention(nn.Module):
     """Vanilla MHA -- sin-cos model variant. Uses QKVProjection, split_heads,
     scaled_dot_product_attention, merge_heads."""
-    def __init__(self, d_model: int, n_heads: int):
+    def __init__(self, d_model: int, n_heads: int,dropout:float =0.0):
         super().__init__()
         self.n_heads = n_heads
+        self.dropout = dropout
+        self.attn_dropout  =nn.Dropout(dropout)
         self.qkv_proj = QKVProjection(d_model)
         self.out_proj = nn.Linear(d_model, d_model)
 
@@ -272,7 +277,7 @@ class MultiHeadAttention(nn.Module):
         q = split_heads(q, self.n_heads)
         k = split_heads(k, self.n_heads)
         v = split_heads(v, self.n_heads)
-        out = scaled_dot_product_attention(q, k, v)
+        out = scaled_dot_product_attention(q, k, v,dropout=self.attn_dropout)
         out = merge_heads(out)
         out = self.out_proj(out)
         return out
@@ -281,11 +286,26 @@ class MultiHeadAttention(nn.Module):
 class RoPEAttention(nn.Module):
     """MHA + RoPE on q,k before the dot-product -- PRIORITY variant. Same
     utilities as MultiHeadAttention, plus apply_rope_2d() after split_heads."""
-    def __init__(self, d_model: int, n_heads: int,grid_h:int,grid_w:int):
+    def __init__(self, d_model: int, n_heads: int,grid_h:int,grid_w:int,dropout:float=0.0,bias = True,causal = False):
         super().__init__()
         self.n_heads = n_heads
+        self.dropout = dropout
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+
+        self.causal = causal
+        if self.causal:
+            N= self.grid_h * self.grid_w
+        
+            causal_mask = torch.tril(torch.ones(N, N))
+        
+            self.register_buffer("causal_mask",causal_mask,persistent=False)
+        else:
+            self.causal_mask = None
+
+        self.attn_dropout = nn.Dropout(dropout)
         self.qkv_proj = QKVProjection(d_model=d_model)
-        self.out_proj = nn.Linear(in_features=d_model,out_features=d_model)
+        self.out_proj = nn.Linear(in_features=d_model,out_features=d_model,bias=bias)
         assert d_model%n_heads == 0,f"d_model must be divided by n_head"
         head_dim = d_model//n_heads
         cos_cache, sin_cache = build_rope_cache_2d(
@@ -308,13 +328,14 @@ class RoPEAttention(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        
         q, k, v = self.qkv_proj(x)
         q = split_heads(q, self.n_heads)
         k = split_heads(k, self.n_heads)
         v = split_heads(v, self.n_heads)
         q_rotated = apply_rope_2d(x=q,cos=self.cos_cache,sin=self.sin_cache)
         k_rotated = apply_rope_2d(x=k,cos=self.cos_cache,sin=self.sin_cache)
-        out = scaled_dot_product_attention(q_rotated, k_rotated, v)
+        out = scaled_dot_product_attention(q_rotated, k_rotated, v,dropout=self.attn_dropout,mask=self.causal_mask)
         out = merge_heads(out)
         out = self.out_proj(out)
         return out
