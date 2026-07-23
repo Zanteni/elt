@@ -168,12 +168,46 @@ def build_rope_cache_2d(dim: int, grid_h: int, grid_w: int, base: float = 10000.
 
     return cos,sin
 
-
-def apply_rope_2d(x: torch.Tensor, rope_cache_2d) -> torch.Tensor:
+def apply_rope_2d(
+    x,
+    cos,
+    sin
+):
     """Rotates first half of head_dim with row rope, second half with col rope."""
-    raise NotImplementedError
+
+    dim_half = x.shape[-1] // 2
+
+    x_h = x[..., :dim_half]
+    x_w = x[..., dim_half:]
 
 
+    cos_h = cos[..., :dim_half//2]
+    sin_h = sin[..., :dim_half//2]
+
+    cos_w = cos[..., dim_half//2:]
+    sin_w = sin[..., dim_half//2:]
+
+
+    x_h = apply_rope(
+        x_h,
+        cos_h,
+        sin_h
+    )
+
+    x_w = apply_rope(
+        x_w,
+        cos_w,
+        sin_w
+    )
+
+
+    return torch.cat(
+        [
+            x_h,
+            x_w
+        ],
+        dim=-1
+    )
 # ---------------------------------------------------------------------------
 # 4. Attention Modules
 # ---------------------------------------------------------------------------
