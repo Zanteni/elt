@@ -114,7 +114,7 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
     return torch.cat([-x2, x1], dim=-1)
     
 
-def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+def  apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
     """Applies 1D rope to one axis's slice of head_dim.
     x: (B, n_heads, N, head_dim). cos/sin: (seq_len, head_dim//2) from build_rope_cache,
     where seq_len == N and head_dim//2 == x's last-dim // 2."""
@@ -131,9 +131,10 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     
 
 def build_2d_positions(grid_h: int, grid_w: int) -> torch.Tensor:
-    """(grid_h*grid_w, 2) row/col index per patch."""
-    raise NotImplementedError
-
+    n = torch.arange(grid_h * grid_w)
+    rows = n // grid_w
+    cols = n % grid_w
+    return torch.stack([rows, cols], dim=-1)
 
 def build_rope_cache_2d(dim: int, grid_h: int, grid_w: int, base: float = 10000.0):
     """
@@ -141,7 +142,31 @@ def build_rope_cache_2d(dim: int, grid_h: int, grid_w: int, base: float = 10000.
     Called once in VAEEncoder.__init__ and once in VAEDecoder.__init__ --
     each owns its own cache (grids may differ).
     """
-    raise NotImplementedError
+    assert dim%4 ==0,"dim must be divided by 4"
+    half_dim = dim//2
+    positions = build_2d_positions(grid_h=grid_h,grid_w=grid_w)
+
+    cos_h, sin_h = build_rope_cache(seq_len=grid_h,dim=half_dim,base=base)
+    cos_w, sin_w = build_rope_cache(seq_len=grid_w,dim=half_dim,base=base)
+    pos_h = positions[:,0]
+    pos_w = positions[:,1]
+    cos_h = cos_h[pos_h]
+    sin_h = sin_h[pos_h]
+    cos_w = cos_w[pos_w]
+    sin_w = sin_w[pos_w]
+    cos = torch.cat(
+        [cos_h,
+         cos_w],
+         dim=-1
+    )
+    sin = torch.cat(
+            [sin_h,
+             sin_w],
+             dim=-1
+        )
+   
+
+    return cos,sin
 
 
 def apply_rope_2d(x: torch.Tensor, rope_cache_2d) -> torch.Tensor:
