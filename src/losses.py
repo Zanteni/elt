@@ -95,10 +95,12 @@ class LPIPSLoss(nn.Module):
         super().__init__()
 
         self.model = lpips.LPIPS(net="vgg")
+
         self.model.eval()
 
         for p in self.model.parameters():
             p.requires_grad = False
+
 
     def forward(
         self,
@@ -106,9 +108,12 @@ class LPIPSLoss(nn.Module):
         y: torch.Tensor,
     ) -> torch.Tensor:
 
+        # move LPIPS to same device as input
+        if next(self.model.parameters()).device != x.device:
+            self.model = self.model.to(x.device)
+
         return self.model(x, y).mean()
-
-
+    
 # ============================================================================
 # Complete VAE Loss
 # ============================================================================
