@@ -443,15 +443,18 @@ class TransformerBlock(nn.Module):
         return x
 
 class TransformerBackbone(nn.Module):
-    def __init__(self, d_model: int, n_heads: int, depth: int, attention_type: str):
+    def __init__(self, attn_cfg: AttentionConfig, depth: int, mlp_ratio: float = 4.0, dropout: float = 0.0):
         super().__init__()
-        raise NotImplementedError
+        self.blocks = nn.ModuleList([
+            TransformerBlock(attn_cfg=attn_cfg,mlp_ratio=mlp_ratio,dropout=dropout)
+            for _ in range(depth)
+        ])
+        
 
-    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
-        """kwargs forwards rope_cache_2d to each TransformerBlock when attention_type=='rope'."""
-        raise NotImplementedError
-
-
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for blk in self.blocks:
+            x = blk(x)
+        return x
 # ---------------------------------------------------------------------------
 # 6. VAE
 # ---------------------------------------------------------------------------
