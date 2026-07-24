@@ -529,7 +529,9 @@ class VAEEncoder(nn.Module):
 def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
     """z = mu + eps * std, eps ~ N(0,1)"""
     eps = torch.randn_like(logvar)
-    z = mu+eps*torch.exp(logvar)
+    std = torch.exp(0.5 * logvar)
+    z = mu + eps * std
+    return z
 
 class VAEDecoder(nn.Module):
     """
@@ -544,7 +546,7 @@ class VAEDecoder(nn.Module):
         self.latent_proj = nn.Linear(config.latent_dim,config.d_model)
         if config.attention_type == "mha":
             pos_embed = build_2d_sincos_pos_embed(d_model=config.d_model,grid_h=config.grid_h,grid_w=config.grid_w)
-            self.register_buffer("pos_embd",pos_embed,persistent=False)
+            self.register_buffer("pos_embed",pos_embed,persistent=False)
         
         attn_cfg = AttentionConfig(
                     d_model=config.d_model,
@@ -579,12 +581,18 @@ class VAEDecoder(nn.Module):
 
 class VAE(nn.Module):
     """Wraps VAEEncoder + reparameterize + VAEDecoder. attention_type set via config."""
-    def __init__(self, config:VAEConfig):
+    def __init__(self, config_enc:VAEConfig,config_dec:VAEConfig):
         super().__init__()
-        # self.encoder = VAEEncoder(config); self.decoder = VAEDecoder(config)
-        raise NotImplementedError
+        self.encoder = VAEEncoder(config_enc)
+        self.decoder = VAEDecoder(config_dec)
+
 
     def forward(self, x: torch.Tensor):
         """Returns: recon, mu, logvar"""
-        # mu, logvar = self.encoder(x); z = reparameterize(mu, logvar); recon = self.decoder(z)
-        raise NotImplementedError
+
+        mu,logvar = self.encoder(x)
+        z = reparameterize(mu=mu,logvar=logvar)
+        return {"recon":self.decoder(z),
+                "mu":mu,
+                "logvar":logvar
+        }
