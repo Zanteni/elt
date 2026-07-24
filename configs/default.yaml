@@ -2,7 +2,7 @@ seed: 42
 device: cuda
 
 data:
-  root: ./data
+  root: /kaggle/input/cifar10
   dataset: cifar10
   batch_size: 128
   num_workers: 4
