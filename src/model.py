@@ -537,27 +537,49 @@ class VAEDecoder(nn.Module):
     -> PatchProjection -> unpatchify.
     Owns its own rope_cache_2d (separate buffer from VAEEncoder's).
     """
-    def __init__(self, config):
+    def __init__(self, config:VAEConfig):
         super().__init__()
+        self.config = config
         # self.latent_proj = nn.Linear(latent_dim, d_model)
-        # if 'mha': register_buffer sincos pos_embed
-        # if 'rope': self.register_buffer('rope_cache_2d', build_rope_cache_2d(...))
-        # self.backbone = TransformerBackbone(d_model, n_heads, depth, attention_type)
-        # self.patch_proj = PatchProjection(d_model, patch_dim)
-        raise NotImplementedError
+        self.latent_proj = nn.Linear(config.latent_dim,config.d_model)
+        if config.attention_type == "mha":
+            pos_embed = build_2d_sincos_pos_embed(d_model=config.d_model,grid_h=config.grid_h,grid_w=config.grid_w)
+            self.register_buffer("pos_embd",pos_embed,persistent=False)
+        
+        attn_cfg = AttentionConfig(
+                    d_model=config.d_model,
+                    n_heads=config.n_heads,
+                    attention_type=config.attention_type,
+                    dropout=config.dropout,
+                    bias=config.bias,
+                    grid_h = config.grid_h if config.attention_type == "rope" else None,
+                    grid_w=config.grid_w if config.attention_type == "rope" else None
+                )
+        
+        
+        self.backbone = TransformerBackbone(attn_cfg=attn_cfg,depth=config.depth,mlp_ratio=config.mlp_ratio,dropout=config.dropout)
+        self.patch_proj = PatchProj(d_model=config.d_model,patch_dim=config.patch_dim)
+
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         """
         z: (B, N, latent_dim) -> (B, C, H, W)
         latent_proj -> (+pos_embed if mha) -> backbone(..., rope_cache_2d=self.rope_cache_2d)
         -> patch_proj -> unpatchify
+        
         """
-        raise NotImplementedError
+        x = self.latent_proj(z)
+        if  self.config.attention_type == "mha":
+            x = x+self.pos_embed(x)
+        x = self.backbone(x)
+        x = self.patch_proj(x)
+        x = unpatchify(x,self.config.patch_size,out_channels=self.config.in_channels,h=self.config.image_size,w=self.config.image_size)
+        return x
 
 
 class VAE(nn.Module):
     """Wraps VAEEncoder + reparameterize + VAEDecoder. attention_type set via config."""
-    def __init__(self, config):
+    def __init__(self, config:VAEConfig):
         super().__init__()
         # self.encoder = VAEEncoder(config); self.decoder = VAEDecoder(config)
         raise NotImplementedError
