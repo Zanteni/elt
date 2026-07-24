@@ -1,3 +1,4 @@
+import os
 import torch
 import wandb
 
@@ -5,7 +6,7 @@ from accelerate import Accelerator
 
 from data import (
     build_cifar10_datasets,
-    build_dataloader
+    build_dataloader,
 )
 
 from model import build_model
@@ -38,8 +39,13 @@ cfg = load_config(
 set_seed(cfg["seed"])
 
 
-accelerator = Accelerator()
+os.makedirs(
+    "checkpoints",
+    exist_ok=True
+)
 
+
+accelerator = Accelerator()
 
 device = accelerator.device
 
@@ -71,14 +77,15 @@ train_dataset, test_dataset = build_cifar10_datasets(
 train_loader = build_dataloader(
     train_dataset,
     batch_size=cfg["data"]["batch_size"],
-    num_workers=cfg["data"]["num_workers"]
+    num_workers=cfg["data"]["num_workers"],
 )
 
 
 test_loader = build_dataloader(
     test_dataset,
     batch_size=32,
-    shuffle=False
+    shuffle=False,
+    num_workers=cfg["data"]["num_workers"],
 )
 
 
@@ -98,8 +105,9 @@ model = build_model(cfg)
 criterion = VAELoss(
     beta=float(cfg["loss"]["beta"]),
     lpips_weight=float(cfg["loss"]["lpips_weight"]),
-    reconstruction=cfg["loss"]["reconstruction"]
+    reconstruction=cfg["loss"]["reconstruction"],
 )
+
 
 
 # =====================================================
@@ -109,18 +117,7 @@ criterion = VAELoss(
 optimizer = torch.optim.AdamW(
     model.parameters(),
     lr=float(cfg["optimizer"]["lr"]),
-    weight_decay=cfg["optimizer"]["weight_decay"]
-)
-
-
-
-# =====================================================
-# EMA
-# =====================================================
-
-ema = EMA(
-    model,
-    decay=cfg["train"]["ema_decay"]
+    weight_decay=float(cfg["optimizer"]["weight_decay"]),
 )
 
 
@@ -132,7 +129,18 @@ ema = EMA(
 model, optimizer, train_loader = accelerator.prepare(
     model,
     optimizer,
-    train_loader
+    train_loader,
+)
+
+
+
+# =====================================================
+# EMA
+# =====================================================
+
+ema = EMA(
+    accelerator.unwrap_model(model),
+    decay=float(cfg["train"]["ema_decay"]),
 )
 
 
@@ -149,11 +157,16 @@ meter = AverageMeter()
 
 while step < cfg["train"]["max_steps"]:
 
-
     model.train()
 
 
-    for images in train_loader:
+    for batch in train_loader:
+
+
+        # ImageFolder returns:
+        # image, label
+
+        images, labels = batch
 
 
         images = move_to_device(
@@ -162,14 +175,19 @@ while step < cfg["train"]["max_steps"]:
         )
 
 
+        # -------------------------
+        # Forward
+        # -------------------------
+
         out = model(images)
+
 
 
         losses = criterion(
             recon=out["recon"],
             target=images,
             mu=out["mu"],
-            logvar=out["logvar"]
+            logvar=out["logvar"],
         )
 
 
@@ -177,19 +195,24 @@ while step < cfg["train"]["max_steps"]:
 
 
 
+        # -------------------------
+        # Backward
+        # -------------------------
+
         optimizer.zero_grad()
 
-
         accelerator.backward(loss)
-
 
         optimizer.step()
 
 
 
-        # EMA update
+        # -------------------------
+        # EMA
+        # -------------------------
+
         ema.update(
-            model
+            accelerator.unwrap_model(model)
         )
 
 
@@ -200,39 +223,44 @@ while step < cfg["train"]["max_steps"]:
         )
 
 
-        # ---------------------
+
+        # -------------------------
         # Logging
-        # ---------------------
+        # -------------------------
 
         if step % cfg["train"]["log_every"] == 0:
 
 
             if accelerator.is_main_process:
 
+
                 wandb.log(
                     {
-                        "train/loss":loss.item(),
+                        "train/loss": loss.item(),
                         "train/reconstruction":
                             losses["reconstruction"].item(),
                         "train/kl":
                             losses["kl"].item(),
-                        "step":step
+                        "step": step,
                     }
                 )
 
 
                 print(
                     f"step {step} | "
-                    f"loss {meter.avg:.4f}"
+                    f"loss {meter.avg:.5f}"
                 )
 
 
 
-        # ---------------------
+        # -------------------------
         # Evaluation
-        # ---------------------
+        # -------------------------
 
-        if step % cfg["train"]["eval_every"] == 0:
+        if (
+            step % cfg["train"]["eval_every"] == 0
+            and step > 0
+        ):
 
 
             if accelerator.is_main_process:
@@ -248,26 +276,31 @@ while step < cfg["train"]["max_steps"]:
                 wandb.log(
                     {
                         "eval/reconstruction_mse":
-                        metrics["reconstruction_mse"]
+                            metrics["reconstruction_mse"],
+                        "step": step,
                     }
                 )
 
 
 
-        # ---------------------
+        # -------------------------
         # Checkpoint
-        # ---------------------
+        # -------------------------
 
-        if step % cfg["train"]["ckpt_every"] == 0:
+        if (
+            step % cfg["train"]["ckpt_every"] == 0
+            and step > 0
+        ):
 
 
             if accelerator.is_main_process:
 
+
                 save_checkpoint(
                     f"checkpoints/vae_{step}.pt",
-                    model,
+                    accelerator.unwrap_model(model),
                     optimizer,
-                    epoch=step
+                    epoch=step,
                 )
 
 
