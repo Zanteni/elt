@@ -1,6 +1,7 @@
 import os
 import torch
 import wandb
+import torchvision
 
 from accelerate import Accelerator
 
@@ -36,7 +37,9 @@ cfg = load_config(
 )
 
 
-set_seed(cfg["seed"])
+set_seed(
+    cfg["seed"]
+)
 
 
 os.makedirs(
@@ -52,7 +55,7 @@ device = accelerator.device
 
 
 # =====================================================
-# Wandb
+# WandB
 # =====================================================
 
 if accelerator.is_main_process:
@@ -66,7 +69,7 @@ if accelerator.is_main_process:
 
 
 # =====================================================
-# Data
+# Dataset
 # =====================================================
 
 train_dataset, test_dataset = build_cifar10_datasets(
@@ -103,9 +106,17 @@ model = build_model(cfg)
 # =====================================================
 
 criterion = VAELoss(
-    beta=float(cfg["loss"]["beta"]),
-    lpips_weight=float(cfg["loss"]["lpips_weight"]),
-    reconstruction=cfg["loss"]["reconstruction"],
+
+    beta=float(
+        cfg["loss"]["beta"]
+    ),
+
+    lpips_weight=float(
+        cfg["loss"]["lpips_weight"]
+    ),
+
+    reconstruction=
+        cfg["loss"]["reconstruction"]
 )
 
 
@@ -117,19 +128,21 @@ criterion = VAELoss(
 optimizer = torch.optim.AdamW(
     model.parameters(),
     lr=float(cfg["optimizer"]["lr"]),
-    weight_decay=float(cfg["optimizer"]["weight_decay"]),
+    weight_decay=float(
+        cfg["optimizer"]["weight_decay"]
+    )
 )
 
 
 
 # =====================================================
-# Accelerator prepare
+# Accelerator
 # =====================================================
 
 model, optimizer, train_loader = accelerator.prepare(
     model,
     optimizer,
-    train_loader,
+    train_loader
 )
 
 
@@ -139,8 +152,12 @@ model, optimizer, train_loader = accelerator.prepare(
 # =====================================================
 
 ema = EMA(
+
     accelerator.unwrap_model(model),
-    decay=float(cfg["train"]["ema_decay"]),
+
+    decay=float(
+        cfg["train"]["ema_decay"]
+    )
 )
 
 
@@ -157,14 +174,14 @@ meter = AverageMeter()
 
 while step < cfg["train"]["max_steps"]:
 
+
     model.train()
 
 
     for batch in train_loader:
 
 
-        # ImageFolder returns:
-        # image, label
+        # ImageFolder / CIFAR10 style
 
         images, labels = batch
 
@@ -184,10 +201,14 @@ while step < cfg["train"]["max_steps"]:
 
 
         losses = criterion(
+
             recon=out["recon"],
+
             target=images,
+
             mu=out["mu"],
-            logvar=out["logvar"],
+
+            logvar=out["logvar"]
         )
 
 
@@ -218,15 +239,18 @@ while step < cfg["train"]["max_steps"]:
 
 
         meter.update(
+
             loss.item(),
+
             images.size(0)
+
         )
 
 
 
-        # -------------------------
+        # =================================================
         # Logging
-        # -------------------------
+        # =================================================
 
         if step % cfg["train"]["log_every"] == 0:
 
@@ -236,12 +260,19 @@ while step < cfg["train"]["max_steps"]:
 
                 wandb.log(
                     {
-                        "train/loss": loss.item(),
-                        "train/reconstruction":
-                            losses["reconstruction"].item(),
-                        "train/kl":
-                            losses["kl"].item(),
-                        "step": step,
+
+                    "train/loss":
+                        loss.item(),
+
+                    "train/reconstruction":
+                        losses["reconstruction"].item(),
+
+                    "train/kl":
+                        losses["kl"].item(),
+
+                    "step":
+                        step
+
                     }
                 )
 
@@ -253,9 +284,9 @@ while step < cfg["train"]["max_steps"]:
 
 
 
-        # -------------------------
-        # Evaluation
-        # -------------------------
+        # =================================================
+        # Evaluation + Images
+        # =================================================
 
         if (
             step % cfg["train"]["eval_every"] == 0
@@ -266,26 +297,129 @@ while step < cfg["train"]["max_steps"]:
             if accelerator.is_main_process:
 
 
+                raw_model = accelerator.unwrap_model(
+                    model
+                )
+
+
+                # ---- use EMA weights ----
+
+                backup = ema.apply_shadow(
+                    raw_model
+                )
+
+
+                raw_model.eval()
+
+
+                with torch.no_grad():
+
+
+                    batch = next(
+                        iter(test_loader)
+                    )
+
+
+                    test_images,_ = batch
+
+
+                    test_images = test_images.to(
+                        device
+                    )
+
+
+                    output = raw_model(
+                        test_images
+                    )
+
+
+                    recon = output["recon"]
+
+
+
+                    comparison = torch.cat(
+                        [
+                            test_images[:8],
+                            recon[:8]
+                        ],
+                        dim=0
+                    )
+
+
+                    grid = torchvision.utils.make_grid(
+
+                        comparison,
+
+                        nrow=8
+
+                    )
+
+
+                    wandb.log(
+                        {
+
+                        "eval/reconstruction_grid":
+                            wandb.Image(
+                                grid,
+                                caption=
+                                "top: original | bottom: reconstruction"
+                            ),
+
+                        "eval/input":
+                            wandb.Image(
+                                test_images[0]
+                            ),
+
+                        "eval/reconstruction":
+                            wandb.Image(
+                                recon[0]
+                            ),
+
+                        "step":
+                            step
+
+                        }
+                    )
+
+
+
                 metrics = evaluate_reconstruction(
-                    model,
+
+                    raw_model,
+
                     test_loader,
+
                     device=device
+
                 )
 
 
                 wandb.log(
                     {
-                        "eval/reconstruction_mse":
-                            metrics["reconstruction_mse"],
-                        "step": step,
+
+                    "eval/reconstruction_mse":
+                        metrics["reconstruction_mse"],
+
+                    "step":
+                        step
+
                     }
                 )
 
 
 
-        # -------------------------
+                # restore normal weights
+
+                ema.restore(
+                    raw_model,
+                    backup
+                )
+
+
+
+        # =================================================
         # Checkpoint
-        # -------------------------
+        # =================================================
 
         if (
             step % cfg["train"]["ckpt_every"] == 0
@@ -296,18 +430,30 @@ while step < cfg["train"]["max_steps"]:
             if accelerator.is_main_process:
 
 
-                save_checkpoint(
-                    f"checkpoints/vae_{step}.pt",
-                    accelerator.unwrap_model(model),
-                    optimizer,
-                    epoch=step,
+                raw_model = accelerator.unwrap_model(
+                    model
                 )
+
+
+                save_checkpoint(
+
+                    f"checkpoints/vae_{step}.pt",
+
+                    raw_model,
+
+                    optimizer,
+
+                    epoch=step
+
+                )
+
 
 
         step += 1
 
 
         if step >= cfg["train"]["max_steps"]:
+
             break
 
 
