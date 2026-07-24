@@ -178,3 +178,17 @@ class VAELoss(nn.Module):
             "kl": kl,
             "lpips": perceptual,
         }
+
+def build_loss(cfg):
+
+    if cfg["model"]["name"] == "vae":
+
+        return VAELoss(
+            beta=cfg["loss"]["beta"],
+            lpips_weight=cfg["loss"]["lpips_weight"],
+            reconstruction=cfg["loss"]["reconstruction"],
+        )
+
+    raise ValueError(
+        f"Unknown loss for {cfg['model']['name']}"
+    )
