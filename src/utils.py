@@ -1,92 +1,52 @@
+import copy
+import random
 import yaml
 
-import copy
+import numpy as np
+import torch
+
 
 
 # ============================================================================
-# YAML
+# Configuration
 # ============================================================================
 
-def load_yaml(path: str) -> dict:
-    """
-    Load a YAML configuration file.
 
-    Args:
-        path:
-            Path to the YAML file.
+def load_yaml(path):
 
-    Returns:
-        Parsed configuration dictionary.
-
-    Raises:
-        FileNotFoundError:
-            If the file does not exist.
-
-        yaml.YAMLError:
-            If the YAML syntax is invalid.
-    """
-
-    with open(path, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-
-    return cfg
+    with open(path,"r",encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 
-def merge_configs(default_cfg: dict, stage_cfg: dict) -> dict:
-    """
-    Recursively merge two configuration dictionaries.
 
-    Values in stage_cfg override values in default_cfg.
-
-    Args:
-        default_cfg:
-            Base configuration.
-
-        stage_cfg:
-            Configuration overriding the defaults.
-
-    Returns:
-        Merged configuration dictionary.
-    """
+def merge_configs(default_cfg, stage_cfg):
 
     merged = copy.deepcopy(default_cfg)
 
-    for key, value in stage_cfg.items():
+
+    for key,value in stage_cfg.items():
 
         if (
             key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
+            and isinstance(merged[key],dict)
+            and isinstance(value,dict)
         ):
 
             merged[key] = merge_configs(
                 merged[key],
-                value,
+                value
             )
 
         else:
 
-            merged[key] = value
+            merged[key]=value
+
 
     return merged
 
-def load_config(
-    default_path: str,
-    stage_path: str,
-) -> dict:
-    """
-    Load and merge configuration files.
 
-    Args:
-        default_path:
-            Path to the shared default configuration.
 
-        stage_path:
-            Path to the stage-specific configuration.
-
-    Returns:
-        Merged configuration dictionary.
-    """
+def load_config(default_path, stage_path):
 
     default_cfg = load_yaml(default_path)
 
@@ -94,22 +54,17 @@ def load_config(
 
     return merge_configs(
         default_cfg,
-        stage_cfg,
+        stage_cfg
     )
 
-import random
-import numpy as np
-import torch
 
 
-def set_seed(seed: int):
-    """
-    Set random seed for reproducibility.
+# ============================================================================
+# Reproducibility
+# ============================================================================
 
-    Args:
-        seed:
-            Random seed.
-    """
+
+def set_seed(seed):
 
     random.seed(seed)
 
@@ -117,31 +72,27 @@ def set_seed(seed: int):
 
     torch.manual_seed(seed)
 
+
     if torch.cuda.is_available():
+
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-    torch.backends.cudnn.deterministic = True
 
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic=True
+    torch.backends.cudnn.benchmark=False
+
+
+
+# ============================================================================
+# Model utilities
+# ============================================================================
+
 
 def count_parameters(
-    model,
-    trainable_only: bool = False,
+        model,
+        trainable_only=False
 ):
-    """
-    Count model parameters.
-
-    Args:
-        model:
-            PyTorch model.
-
-        trainable_only:
-            If True, count only parameters that require gradients.
-
-    Returns:
-        Number of parameters.
-    """
 
     if trainable_only:
 
@@ -151,56 +102,310 @@ def count_parameters(
             if p.requires_grad
         )
 
+
     return sum(
         p.numel()
         for p in model.parameters()
     )
 
+
+
+def freeze_model(model):
+
+    for p in model.parameters():
+        p.requires_grad=False
+
+
+
+def unfreeze_model(model):
+
+    for p in model.parameters():
+        p.requires_grad=True
+
+
+
+# ============================================================================
+# Device
+# ============================================================================
+
+
+def move_to_device(batch,device):
+
+    if torch.is_tensor(batch):
+
+        return batch.to(
+            device,
+            non_blocking=True
+        )
+
+
+    if isinstance(batch,(list,tuple)):
+
+        return type(batch)(
+            move_to_device(x,device)
+            for x in batch
+        )
+
+
+    if isinstance(batch,dict):
+
+        return {
+            k:move_to_device(v,device)
+            for k,v in batch.items()
+        }
+
+
+    return batch
+
+
+
+# ============================================================================
+# Average meter
+# ============================================================================
+
+
 class AverageMeter:
-    """
-    Tracks the running average of a scalar quantity.
 
-    Example:
-        meter = AverageMeter()
-
-        meter.update(2.0)
-        meter.update(4.0)
-
-        print(meter.avg)   # 3.0
-    """
 
     def __init__(self):
+
         self.reset()
 
 
+
     def reset(self):
-        """
-        Reset all statistics.
-        """
 
-        self.sum = 0.0
-        self.count = 0
-        self.avg = 0.0
+        self.sum=0.
+        self.count=0
+        self.avg=0.
 
 
-    def update(
-        self,
-        value: float,
-        n: int = 1,
-    ):
-        """
-        Add a new observation.
 
-        Args:
-            value:
-                Scalar value.
+    def update(self,value,n=1):
 
-            n:
-                Number of samples represented by value.
-        """
-
-        self.sum += value * n
+        self.sum += value*n
 
         self.count += n
 
-        self.avg = self.sum / self.count
+        self.avg = self.sum/self.count
+
+
+
+# ============================================================================
+# EMA
+# ============================================================================
+
+
+class EMA:
+
+
+    def __init__(
+        self,
+        model,
+        decay=0.9999
+    ):
+
+        self.decay=decay
+
+        self.shadow={}
+
+
+        for name,param in model.named_parameters():
+
+            if param.requires_grad:
+
+                self.shadow[name]=param.data.clone()
+
+
+
+    @torch.no_grad()
+    def update(self,model):
+
+        for name,param in model.named_parameters():
+
+            if param.requires_grad:
+
+                self.shadow[name].mul_(self.decay)
+
+                self.shadow[name].add_(
+                    param.data,
+                    alpha=1-self.decay
+                )
+
+
+
+    def apply_shadow(self,model):
+
+        backup={}
+
+
+        for name,param in model.named_parameters():
+
+            if param.requires_grad:
+
+                backup[name]=param.data.clone()
+
+                param.data.copy_(
+                    self.shadow[name]
+                )
+
+
+        return backup
+
+
+
+    def restore(self,model,backup):
+
+        for name,param in model.named_parameters():
+
+            if param.requires_grad:
+
+                param.data.copy_(
+                    backup[name]
+                )
+
+
+
+# ============================================================================
+# Checkpoints
+# ============================================================================
+
+
+def save_checkpoint(
+    path,
+    model,
+    optimizer=None,
+    scheduler=None,
+    scaler=None,
+    ema=None,
+    epoch=0,
+):
+
+
+    checkpoint={
+
+        "epoch":epoch,
+
+        "model":model.state_dict()
+
+    }
+
+
+    if optimizer:
+
+        checkpoint["optimizer"]=optimizer.state_dict()
+
+
+
+    if scheduler:
+
+        checkpoint["scheduler"]=scheduler.state_dict()
+
+
+
+    if scaler:
+
+        checkpoint["scaler"]=scaler.state_dict()
+
+
+
+    if ema:
+
+        checkpoint["ema"]=ema.shadow
+
+
+
+    torch.save(
+        checkpoint,
+        path
+    )
+
+
+
+
+def load_checkpoint(
+    path,
+    model,
+    optimizer=None,
+    scheduler=None,
+    scaler=None,
+    ema=None,
+    device="cpu"
+):
+
+
+    checkpoint=torch.load(
+        path,
+        map_location=device
+    )
+
+
+    model.load_state_dict(
+        checkpoint["model"]
+    )
+
+
+    if optimizer and "optimizer" in checkpoint:
+
+        optimizer.load_state_dict(
+            checkpoint["optimizer"]
+        )
+
+
+    if scheduler and "scheduler" in checkpoint:
+
+        scheduler.load_state_dict(
+            checkpoint["scheduler"]
+        )
+
+
+    if scaler and "scaler" in checkpoint:
+
+        scaler.load_state_dict(
+            checkpoint["scaler"]
+        )
+
+
+    if ema and "ema" in checkpoint:
+
+        ema.shadow = checkpoint["ema"]
+
+
+    return checkpoint["epoch"]
+
+
+
+# ============================================================================
+# Infinite loader
+# ============================================================================
+
+
+class InfiniteDataLoader:
+
+
+    def __init__(self,dataloader):
+
+        self.loader=dataloader
+
+        self.iterator=iter(dataloader)
+
+
+
+    def __iter__(self):
+
+        return self
+
+
+
+    def __next__(self):
+
+        try:
+
+            return next(self.iterator)
+
+
+        except StopIteration:
+
+            self.iterator=iter(self.loader)
+
+            return next(self.iterator)
