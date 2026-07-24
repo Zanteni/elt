@@ -96,11 +96,10 @@ model = build_model(cfg)
 # =====================================================
 
 criterion = VAELoss(
-    beta=cfg["loss"]["beta"],
-    lpips_weight=cfg["loss"]["lpips_weight"],
+    beta=float(cfg["loss"]["beta"]),
+    lpips_weight=float(cfg["loss"]["lpips_weight"]),
     reconstruction=cfg["loss"]["reconstruction"]
 )
-
 
 
 # =====================================================
