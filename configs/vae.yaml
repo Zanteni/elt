@@ -14,5 +14,5 @@ model:
 
 loss:
   beta: 1e-6
-  lpips_weight: 0.0
+  lpips_weight: 1e-3
   reconstruction: mse
