@@ -30,13 +30,6 @@ def normalize_to_neg_one_to_one(x: torch.Tensor) -> torch.Tensor:
 # ===========================================================================
 
 def build_cifar10_datasets(root: str):
-    """
-    CIFAR10 loader.
-
-    root can be:
-        - local folder
-        - Kaggle dataset path
-    """
 
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -44,24 +37,19 @@ def build_cifar10_datasets(root: str):
     ])
 
 
-    train_dataset = datasets.CIFAR10(
-        root=root,
-        train=True,
+    train_dataset = datasets.ImageFolder(
+        root=f"{root}/train",
         transform=transform,
-        download=False,
     )
 
 
-    test_dataset = datasets.CIFAR10(
-        root=root,
-        train=False,
+    test_dataset = datasets.ImageFolder(
+        root=f"{root}/test",
         transform=transform,
-        download=False,
     )
 
 
     return train_dataset, test_dataset
-
 # ===========================================================================
 # Dataset Wrappers
 # ===========================================================================
