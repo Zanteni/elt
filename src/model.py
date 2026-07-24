@@ -613,10 +613,10 @@ class VAEDecoder(nn.Module):
 
 class VAE(nn.Module):
     """Wraps VAEEncoder + reparameterize + VAEDecoder. attention_type set via config."""
-    def __init__(self, config_enc:VAEConfig,config_dec:VAEConfig):
+    def __init__(self, config:VAEConfig):
         super().__init__()
-        self.encoder = VAEEncoder(config_enc)
-        self.decoder = VAEDecoder(config_dec)
+        self.encoder = VAEEncoder(config)
+        self.decoder = VAEDecoder(config)
 
 
     def forward(self, x: torch.Tensor):
@@ -628,3 +628,58 @@ class VAE(nn.Module):
                 "mu":mu,
                 "logvar":logvar
         }
+
+# ---------------------------------------------------------------------------
+# . Build A factory
+# ---------------------------------------------------------------------------
+def build_vae(cfg) -> nn.Module:
+    """
+    Build VAE from yaml configuration.
+    """
+    vae_cfg = VAEConfig(
+        image_size=cfg["model"]["image_size"],
+        patch_size=cfg["model"]["patch_size"],
+        in_channels=cfg["model"]["in_channels"],
+
+        d_model=cfg["model"]["d_model"],
+        n_heads=cfg["model"]["n_heads"],
+        depth=cfg["model"]["depth"],
+
+        latent_dim=cfg["model"]["latent_dim"],
+
+        attention_type=cfg["model"]["attention_type"],
+
+        mlp_ratio=cfg["model"].get("mlp_ratio", 4.0),
+        dropout=cfg["model"].get("dropout", 0.0),
+        bias=cfg["model"].get("bias", True),
+    )
+
+    model = VAE(config=vae_cfg)
+    return model
+# ---------------------------------------------------------------------------
+
+def build_model(cfg):
+
+    name = cfg["model"]["name"]
+
+
+    if name == "vae":
+        return build_vae(cfg)
+
+
+    # elif name == "dit":
+    #     return DiT(
+    #         cfg
+    #     )
+
+
+    # elif name == "elt":
+    #     return ELT(
+    #         cfg
+    #     )
+
+
+    else:
+        raise ValueError(
+            f"Unknown model type {name}"
+        )
