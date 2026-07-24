@@ -459,29 +459,77 @@ class TransformerBackbone(nn.Module):
 # 6. VAE
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# 6. VAE Config 
+# ---------------------------------------------------------------------------
+
+@dataclass
+class VAEConfig:
+    image_size: int
+    patch_size: int
+    in_channels: int
+    d_model: int
+    n_heads: int
+    depth: int
+    latent_dim: int
+    attention_type: str  # "mha" | "rope"
+    mlp_ratio: float = 4.0
+    dropout: float = 0.0
+    bias: bool = True
+ 
+    def __post_init__(self):
+        assert self.image_size % self.patch_size == 0, \
+            f"image_size ({self.image_size}) must be divisible by patch_size ({self.patch_size})"
+        self.grid_h = self.image_size // self.patch_size
+        self.grid_w = self.image_size // self.patch_size
+        self.patch_dim = self.in_channels * self.patch_size ** 2
+ 
+ #---------------------------------------------------------------------------
+
 class VAEEncoder(nn.Module):
     """
     patchify -> PatchEmbed -> (+sincos pos_embed if 'mha') -> TransformerBackbone
     -> mu_logvar_head -> split into mu, logvar.
-    Owns rope_cache_2d: built once in __init__, registered as buffer.
+    RoPE cache ownership lives inside RoPEAttention (built via TransformerBackbone's
+    AttentionConfig) -- VAEEncoder itself doesn't touch rope machinery directly.
     """
-    def __init__(self, config):
+    def __init__(self, config: VAEConfig):
         super().__init__()
-        # self.patch_embed = PatchEmbed(patch_dim, d_model)
-        # if 'mha': register_buffer sincos pos_embed
-        # if 'rope': self.register_buffer('rope_cache_2d', build_rope_cache_2d(...))
-        # self.backbone = TransformerBackbone(d_model, n_heads, depth, attention_type)
-        # self.mu_logvar_head = nn.Linear(d_model, 2 * latent_dim)
-        raise NotImplementedError
-
+        self.config = config
+        self.patch_embed = PatchEmbed(patch_dim=config.patch_dim, d_model=config.d_model)
+ 
+        if config.attention_type == "mha":
+            pos_embed = build_2d_sincos_pos_embed(config.d_model, config.grid_h, config.grid_w)
+            self.register_buffer("pos_embed", pos_embed, persistent=False)
+ 
+        attn_cfg = AttentionConfig(
+            d_model=config.d_model,
+            n_heads=config.n_heads,
+            attention_type=config.attention_type,
+            dropout=config.dropout,
+            bias=config.bias,
+            grid_h=config.grid_h if config.attention_type == "rope" else None,
+            grid_w=config.grid_w if config.attention_type == "rope" else None,
+        )
+        self.backbone = TransformerBackbone(
+            attn_cfg, depth=config.depth, mlp_ratio=config.mlp_ratio, dropout=config.dropout
+        )
+        self.mu_logvar_head = nn.Linear(config.d_model, 2 * config.latent_dim)
+ 
     def forward(self, x: torch.Tensor):
-        """
-        x: (B, C, H, W) -> mu, logvar, each (B, N, latent_dim)
-        patchify -> patch_embed -> (+pos_embed if mha) -> backbone(..., rope_cache_2d=self.rope_cache_2d)
-        -> mu, logvar = mu_logvar_head(x).chunk(2, dim=-1)
-        """
-        raise NotImplementedError
+        """x: (B, C, H, W) -> mu, logvar, each (B, N, latent_dim)"""
+        x = patchify(x, patch_size=self.config.patch_size)
+        x = self.patch_embed(x)
+        if self.config.attention_type == "mha":
+            x = x + self.pos_embed
+        x = self.backbone(x)
+        mu, logvar = self.mu_logvar_head(x).chunk(2, dim=-1)
+        return mu, logvar
 
+def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+    """z = mu + eps * std, eps ~ N(0,1)"""
+    eps = torch.randn_like(logvar)
+    z = mu+eps*torch.exp(logvar)
 
 class VAEDecoder(nn.Module):
     """
@@ -505,11 +553,6 @@ class VAEDecoder(nn.Module):
         -> patch_proj -> unpatchify
         """
         raise NotImplementedError
-
-
-def reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-    """z = mu + eps * std, eps ~ N(0,1)"""
-    raise NotImplementedError
 
 
 class VAE(nn.Module):
