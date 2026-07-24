@@ -90,13 +90,45 @@ class PatchProj(nn.Module):
 # ---------------------------------------------------------------------------
 # 3. Positional Encoding -- TWO variants (config-switched, not stacked)
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 3.1 Positional Encoding :sin/cos 
+# ---------------------------------------------------------------------------
+
+def build_1d_sincos_pos_embed(dim: int,positions: torch.Tensor,base: float = 10000.0):
+    assert dim % 2 == 0, "dimension must be even."
+
+    i = torch.arange(0,dim,2,dtype=positions.dtype,device=positions.device)
+    inv_freq = 1.0 / (base ** (i / dim))
+    theta = torch.outer(positions, inv_freq)
+
+    sin = torch.sin(theta)
+    cos = torch.cos(theta)
+
+    embed = torch.stack([sin, cos], dim=-1)
+    N, D, _ = embed.shape
+    embed = embed.reshape(N, 2 * D)
+    return embed
 
 def build_2d_sincos_pos_embed(d_model: int, grid_h: int, grid_w: int) -> torch.Tensor:
     """
     (grid_h*grid_w, d_model). Added right after PatchEmbed, before first block,
     only when attention_type == 'mha'. Skipped entirely for 'rope'.
     """
-    raise NotImplementedError
+    assert d_model%4==0 ,"d_model must be divided by 4"
+    d_half = d_model//2
+    N = grid_w*grid_h
+    positions = build_2d_positions(grid_h, grid_w)
+    rows = positions[:,0]
+    cols = positions[:,1]
+    row_embed = build_1d_sincos_pos_embed(dim=d_half,positions=rows)
+    col_embed = build_1d_sincos_pos_embed(dim=d_half,positions=cols)
+    pos_embed = torch.cat([row_embed,col_embed],dim=-1)
+    return pos_embed
+
+# ---------------------------------------------------------------------------
+# 3.2 Positional Encoding :RoPE
+# ---------------------------------------------------------------------------
+
 
 def build_rope_cache(dim: int, seq_len: int, base: float = 10000.0):
     """1D RoPE primitive, called per-axis inside build_rope_cache_2d.
@@ -572,7 +604,7 @@ class VAEDecoder(nn.Module):
         """
         x = self.latent_proj(z)
         if  self.config.attention_type == "mha":
-            x = x+self.pos_embed(x)
+            x = x+self.pos_embed
         x = self.backbone(x)
         x = self.patch_proj(x)
         x = unpatchify(x,self.config.patch_size,out_channels=self.config.in_channels,h=self.config.image_size,w=self.config.image_size)
