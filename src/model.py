@@ -12,6 +12,8 @@ from outside -- it's threaded internally to the backbone/blocks/attention.
 import torch
 import torch.nn as nn
 import  math
+from dataclasses import dataclass, field, asdict
+from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -264,13 +266,13 @@ def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tens
 class MultiHeadAttention(nn.Module):
     """Vanilla MHA -- sin-cos model variant. Uses QKVProjection, split_heads,
     scaled_dot_product_attention, merge_heads."""
-    def __init__(self, d_model: int, n_heads: int,dropout:float =0.0):
+    def __init__(self, d_model: int, n_heads: int,dropout:float =0.0,bias = True):
         super().__init__()
         self.n_heads = n_heads
         self.dropout = dropout
         self.attn_dropout  =nn.Dropout(dropout)
         self.qkv_proj = QKVProjection(d_model)
-        self.out_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model,bias=bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         q, k, v = self.qkv_proj(x)
@@ -331,6 +333,51 @@ class RoPEAttention(nn.Module):
         return out
 
         
+@dataclass
+class AttentionConfig:
+    def __post_init__(self):
+        assert self.attention_type in ("mha", "rope"), f"invalid attention_type: {self.attention_type}"
+        if self.attention_type == "rope":
+            assert self.grid_h is not None and self.grid_w is not None, "rope requires grid_h and grid_w"
+    d_model: int
+    n_heads: int
+    attention_type: str          # "mha" | "rope"
+    dropout: float = 0.0
+    bias: bool = True
+    grid_h: Optional[int] = None  # only required for "rope"
+    grid_w: Optional[int] = None  # only required for "rope"
+
+#-------------------------------------------------------------
+#build attention factory
+#--------------------------------------------------------------
+def build_attention(cfg: AttentionConfig) -> nn.Module:
+    assert cfg.attention_type in SUPPORTED_ATTENTIONS, (
+        f"wrong attention type, got {cfg.attention_type}, "
+        f"choose from: {list(SUPPORTED_ATTENTIONS)}."
+    )
+
+    if cfg.attention_type == "mha":
+        return MultiHeadAttention(
+            d_model=cfg.d_model,
+            n_heads=cfg.n_heads,
+            dropout=cfg.dropout,
+            bias=cfg.bias
+        )
+
+    if cfg.attention_type == "rope":
+        assert cfg.grid_h is not None and cfg.grid_w is not None, \
+            "rope attention requires grid_h and grid_w"
+        return RoPEAttention(
+            d_model=cfg.d_model,
+            n_heads=cfg.n_heads,
+            grid_h=cfg.grid_h,
+            grid_w=cfg.grid_w,
+            dropout=cfg.dropout,
+            bias=cfg.bias,
+        )
+
+    raise NotImplementedError(cfg.attention_type)
+#----------------------------------------------------------------
 
 SUPPORTED_ATTENTIONS = {
     "mha": MultiHeadAttention,
@@ -372,16 +419,28 @@ class MLP(nn.Module):
 
 class TransformerBlock(nn.Module):
     """attention_type: 'mha' | 'rope', selected via SUPPORTED_ATTENTIONS."""
-    def __init__(self, d_model: int, n_heads: int, attention_type: str, mlp_ratio: float = 4.0):
+    def __init__(self, attn_cfg: AttentionConfig, mlp_ratio: float = 4.0, dropout: float = 0.0):
         super().__init__()
-        # attn = SUPPORTED_ATTENTIONS[attention_type](d_model, n_heads)
-        # mlp = MLP(d_model, d_model, mlp_ratio)  -- in_dim==out_dim, required for residual
-        raise NotImplementedError
+        self.d_model = attn_cfg.d_model
+        self.n_heads = attn_cfg.n_heads
+        self.mlp_ratio = mlp_ratio
+        self.dropout = dropout
+        self.norm1 = nn.LayerNorm(self.d_model)
+        self.norm2 = nn.LayerNorm(self.d_model)
 
-    def forward(self, x: torch.Tensor, rope_cache_2d=None) -> torch.Tensor:
-        """'mha': self.attn(x). 'rope': self.attn(x, rope_cache_2d) -- must not be None."""
-        raise NotImplementedError
+        self.attn = build_attention(attn_cfg)
+        self.mlp = MLP(self.d_model, self.d_model, mlp_ratio,dropout=dropout)  # in==out for residual
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        res = x
+        x = self.norm1(x)
+        x = self.attn(x)
+        x = x + res
 
+        res = x
+        x = self.norm2(x)
+        x = self.mlp(x)
+        x = x + res
+        return x
 
 class TransformerBackbone(nn.Module):
     def __init__(self, d_model: int, n_heads: int, depth: int, attention_type: str):
