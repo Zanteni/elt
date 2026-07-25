@@ -184,6 +184,19 @@ class VAELoss(nn.Module):
             "lpips": perceptual,
         }
 
+# ============================================================================
+# Diffusion Loss
+# ============================================================================
+
+class DiffusionLoss(nn.Module):
+    def __init__(self, loss_type: str = "mse"):
+        super().__init__()
+        self.loss_fn = SUPPORTED_RECON_LOSSES[loss_type]  # reuse the same registry
+
+    def forward(self, pred_noise, target_noise):
+        loss = self.loss_fn(pred_noise, target_noise)
+        return {"loss": loss}
+    
 def build_loss(cfg):
 
     if cfg["model"]["name"] == "vae":
@@ -194,6 +207,7 @@ def build_loss(cfg):
             reconstruction=cfg["loss"]["reconstruction"],
         )
 
-    raise ValueError(
-        f"Unknown loss for {cfg['model']['name']}"
-    )
+    elif cfg["model"]["name"] == "dit":
+        return DiffusionLoss(loss_type=cfg["loss"]["reconstruction"])
+
+    raise ValueError(f"Unknown loss for {cfg['model']['name']}")
