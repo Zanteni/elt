@@ -3,28 +3,24 @@ import torch
 import wandb
 import torchvision
 
-from accelerate import Accelerator
-
-from data import (
-    build_cifar10_datasets,
-    build_dataloader,
-)
-
+from data import build_dataloader, extract_images
 from model import build_model
-
-from losses import VAELoss
+from losses import build_loss
 
 from utils import (
     load_config,
     set_seed,
-    AverageMeter,
+    setup_environment,
+    build_accelerator,
+    build_optimizer,
     EMA,
     save_checkpoint,
+    maybe_resume,
     move_to_device,
+    InfiniteDataLoader,
 )
 
 from eval import evaluate_reconstruction
-
 
 
 # =====================================================
@@ -36,22 +32,19 @@ cfg = load_config(
     "configs/vae.yaml"
 )
 
-
 set_seed(
     cfg["seed"]
 )
 
-
-os.makedirs(
-    "checkpoints",
-    exist_ok=True
+checkpoint_dir = setup_environment(
+    cfg
 )
 
-
-accelerator = Accelerator()
+accelerator = build_accelerator(
+    cfg
+)
 
 device = accelerator.device
-
 
 
 # =====================================================
@@ -67,72 +60,42 @@ if accelerator.is_main_process:
     )
 
 
-
 # =====================================================
 # Dataset
 # =====================================================
 
-train_dataset, test_dataset = build_cifar10_datasets(
-    cfg["data"]["root"]
-)
-
-
 train_loader = build_dataloader(
-    train_dataset,
-    batch_size=cfg["data"]["batch_size"],
-    num_workers=cfg["data"]["num_workers"],
+    cfg["data"],
+    split="train"
 )
-
 
 test_loader = build_dataloader(
-    test_dataset,
-    batch_size=32,
-    shuffle=False,
-    num_workers=cfg["data"]["num_workers"],
+    cfg["data"],
+    split="test"
 )
 
 
-
 # =====================================================
-# Model
-# =====================================================
-
-model = build_model(cfg)
-
-
-
-# =====================================================
-# Loss
+# Model + Loss
 # =====================================================
 
-criterion = VAELoss(
-
-    beta=float(
-        cfg["loss"]["beta"]
-    ),
-
-    lpips_weight=float(
-        cfg["loss"]["lpips_weight"]
-    ),
-
-    reconstruction=
-        cfg["loss"]["reconstruction"]
+model = build_model(
+    cfg
 )
 
+criterion = build_loss(
+    cfg
+)
 
 
 # =====================================================
 # Optimizer
 # =====================================================
 
-optimizer = torch.optim.AdamW(
-    model.parameters(),
-    lr=float(cfg["optimizer"]["lr"]),
-    weight_decay=float(
-        cfg["optimizer"]["weight_decay"]
-    )
+optimizer = build_optimizer(
+    model,
+    cfg
 )
-
 
 
 # =====================================================
@@ -145,6 +108,24 @@ model, optimizer, train_loader = accelerator.prepare(
     train_loader
 )
 
+raw_model = accelerator.unwrap_model(
+    model
+)
+
+
+if cfg["train"].get(
+    "use_compile",
+    False
+):
+
+    model = torch.compile(
+        model
+    )
+
+
+infinite_loader = InfiniteDataLoader(
+    train_loader
+)
 
 
 # =====================================================
@@ -152,316 +133,380 @@ model, optimizer, train_loader = accelerator.prepare(
 # =====================================================
 
 ema = EMA(
-
-    accelerator.unwrap_model(model),
-
+    raw_model,
     decay=float(
         cfg["train"]["ema_decay"]
     )
 )
 
 
+# =====================================================
+# Resume
+# =====================================================
+
+start_step = maybe_resume(
+    cfg,
+    raw_model,
+    optimizer,
+    ema,
+    device
+)
+
+
+total_steps = cfg["train"]["total_steps"]
+
+
+if start_step >= total_steps:
+
+    print(
+        f"start_step ({start_step}) >= total_steps ({total_steps}) -- nothing to do."
+    )
+
+    if accelerator.is_main_process:
+        wandb.finish()
+
+    exit()
+
 
 # =====================================================
 # Training
 # =====================================================
 
-step = 0
-
-meter = AverageMeter()
-
+running_sums = {}
+running_count = 0
 
 
-while step < cfg["train"]["max_steps"]:
+for step in range(
+    start_step,
+    total_steps
+):
+
+    raw_model.train()
 
 
-    model.train()
+    batch = move_to_device(
+        next(infinite_loader),
+        device
+    )
 
 
-    for batch in train_loader:
+    images = extract_images(
+        batch
+    )
 
 
-        # ImageFolder / CIFAR10 style
+    # -------------------------------------------------
+    # Forward + Backward
+    # -------------------------------------------------
 
-        images, labels = batch
+    with accelerator.accumulate(model):
+
+        with accelerator.autocast():
+
+            out = model(
+                images
+            )
 
 
-        images = move_to_device(
-            images,
-            device
+            losses = criterion(
+                out["recon"],
+                images,
+                out["mu"],
+                out["logvar"]
+            )
+
+
+            loss = losses["loss"]
+
+
+        optimizer.zero_grad(
+            set_to_none=True
         )
 
 
-        # -------------------------
-        # Forward
-        # -------------------------
-
-        out = model(images)
-
-
-
-        losses = criterion(
-
-            recon=out["recon"],
-
-            target=images,
-
-            mu=out["mu"],
-
-            logvar=out["logvar"]
+        accelerator.backward(
+            loss
         )
 
 
-        loss = losses["loss"]
+        accelerator.clip_grad_norm_(
+            model.parameters(),
+            max_norm=float(
+                cfg["train"]["grad_clip_norm"]
+            )
+        )
 
-
-
-        # -------------------------
-        # Backward
-        # -------------------------
-
-        optimizer.zero_grad()
-
-        accelerator.backward(loss)
 
         optimizer.step()
 
 
 
-        # -------------------------
-        # EMA
-        # -------------------------
+    # -------------------------------------------------
+    # EMA
+    # -------------------------------------------------
 
-        ema.update(
-            accelerator.unwrap_model(model)
-        )
+    ema.update(
+        raw_model
+    )
 
 
+    # -------------------------------------------------
+    # Metrics
+    # -------------------------------------------------
 
-        meter.update(
+    for k,v in losses.items():
 
-            loss.item(),
+        if k not in running_sums:
 
+            running_sums[k] = torch.zeros(
+                (),
+                device=device
+            )
+
+
+        running_sums[k] += (
+            v.detach()
+            *
             images.size(0)
-
         )
 
 
-
-        # =================================================
-        # Logging
-        # =================================================
-
-        if step % cfg["train"]["log_every"] == 0:
-
-
-            if accelerator.is_main_process:
-
-
-                wandb.log(
-                    {
-
-                    "train/loss":
-                        loss.item(),
-
-                    "train/reconstruction":
-                        losses["reconstruction"].item(),
-
-                    "train/kl":
-                        losses["kl"].item(),
-
-                    "step":
-                        step
-
-                    }
-                )
-
-
-                print(
-                    f"step {step} | "
-                    f"loss {meter.avg:.5f}"
-                )
+    running_count += images.size(0)
 
 
 
-        # =================================================
-        # Evaluation + Images
-        # =================================================
+    # =================================================
+    # Logging
+    # =================================================
 
-        if (
-            step % cfg["train"]["eval_every"] == 0
-            and step > 0
-        ):
+    if step % cfg["train"]["log_every"] == 0:
 
 
-            if accelerator.is_main_process:
+        metrics = {
+
+            k:(
+                v / running_count
+            ).item()
+
+            for k,v in running_sums.items()
+
+        }
 
 
-                raw_model = accelerator.unwrap_model(
-                    model
-                )
+        if accelerator.is_main_process:
 
 
-                # ---- use EMA weights ----
+            wandb.log(
 
-                backup = ema.apply_shadow(
-                    raw_model
-                )
+                {
 
+                    **{
 
-                raw_model.eval()
+                        f"train/{k}":v
 
+                        for k,v in metrics.items()
 
-                with torch.no_grad():
+                    },
 
+                    "step":step
 
-                    batch = next(
-                        iter(test_loader)
-                    )
+                }
 
-
-                    test_images,_ = batch
+            )
 
 
-                    test_images = test_images.to(
-                        device
-                    )
+            print(
 
+                f"step {step} | "
 
-                    output = raw_model(
-                        test_images
-                    )
+                +
 
+                " ".join(
 
-                    recon = output["recon"]
+                    f"{k}:{v:.5f}"
 
-
-
-                    comparison = torch.cat(
-                        [
-                            test_images[:8],
-                            recon[:8]
-                        ],
-                        dim=0
-                    )
-
-
-                    grid = torchvision.utils.make_grid(
-
-                        comparison,
-
-                        nrow=8
-
-                    )
-
-
-                    wandb.log(
-                        {
-
-                        "eval/reconstruction_grid":
-                            wandb.Image(
-                                grid,
-                                caption=
-                                "top: original | bottom: reconstruction"
-                            ),
-
-                        "eval/input":
-                            wandb.Image(
-                                test_images[0]
-                            ),
-
-                        "eval/reconstruction":
-                            wandb.Image(
-                                recon[0]
-                            ),
-
-                        "step":
-                            step
-
-                        }
-                    )
-
-
-
-                metrics = evaluate_reconstruction(
-
-                    raw_model,
-
-                    test_loader,
-
-                    device=device
+                    for k,v in metrics.items()
 
                 )
 
+            )
 
-                wandb.log(
-                    {
+
+        running_sums = {}
+
+        running_count = 0
+
+
+
+    # =================================================
+    # Evaluation
+    # =================================================
+
+    if (
+
+        step % cfg["eval"]["recon_every"] == 0
+
+        and step > 0
+
+    ):
+
+
+        if accelerator.is_main_process:
+
+
+            backup = ema.apply_shadow(
+                raw_model
+            )
+
+
+            result = evaluate_reconstruction(
+
+                raw_model,
+
+                test_loader,
+
+                device=device,
+
+                loss_fn=criterion
+
+            )
+
+
+            comparison = torch.cat(
+
+                [
+
+                    result["originals"],
+
+                    result["reconstructions"]
+
+                ],
+
+                dim=0
+
+            )
+
+
+            grid = torchvision.utils.make_grid(
+
+                comparison,
+
+                nrow=len(
+                    result["originals"]
+                ),
+
+                normalize=True,
+
+                value_range=(-1,1)
+
+            )
+
+
+            wandb.log(
+
+                {
+
+                    "eval/reconstruction_grid":
+
+                        wandb.Image(
+
+                            grid,
+
+                            caption="top: original | bottom: reconstruction"
+
+                        ),
+
 
                     "eval/reconstruction_mse":
-                        metrics["reconstruction_mse"],
 
-                    "step":
-                        step
-
-                    }
-                )
+                        result["reconstruction_mse"],
 
 
+                    "step":step
 
-                # restore normal weights
+                }
 
-                ema.restore(
-                    raw_model,
-                    backup
-                )
+            )
 
 
-
-        # =================================================
-        # Checkpoint
-        # =================================================
-
-        if (
-            step % cfg["train"]["ckpt_every"] == 0
-            and step > 0
-        ):
+            ema.restore(
+                raw_model,
+                backup
+            )
 
 
-            if accelerator.is_main_process:
-
-
-                raw_model = accelerator.unwrap_model(
-                    model
-                )
-
-
-                save_checkpoint(
-
-                    f"checkpoints/vae_{step}.pt",
-
-                    raw_model,
-
-                    optimizer,
-
-                    epoch=step
-
-                )
+            raw_model.train()
 
 
 
-        step += 1
+    # =================================================
+    # Checkpoint
+    # =================================================
+
+    if (
+
+        step % cfg["train"]["ckpt_every"] == 0
+
+        and step > 0
+
+    ):
 
 
-        if step >= cfg["train"]["max_steps"]:
+        if accelerator.is_main_process:
 
-            break
+
+            save_checkpoint(
+
+                os.path.join(
+
+                    checkpoint_dir,
+
+                    f"vae_{step}.pt"
+
+                ),
+
+                raw_model,
+
+                optimizer,
+
+                ema=ema,
+
+                epoch=step,
+
+                cfg=cfg
+
+            )
 
 
 
 # =====================================================
-# Finish
+# Final checkpoint
 # =====================================================
 
 if accelerator.is_main_process:
+
+
+    save_checkpoint(
+
+        os.path.join(
+
+            checkpoint_dir,
+
+            "vae_final.pt"
+
+        ),
+
+        raw_model,
+
+        optimizer,
+
+        ema=ema,
+
+        epoch=total_steps,
+
+        cfg=cfg
+
+    )
+
 
     wandb.finish()
