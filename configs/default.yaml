@@ -1,20 +1,39 @@
 seed: 42
-device: cuda
 
 data:
   root: /kaggle/input/datasets/ayush1220/cifar10/cifar10
   dataset: cifar10
+  image_size: 32
   batch_size: 128
   num_workers: 4
 
 optimizer:
-  name: adamw
-  lr: 3e-4
+  lr: 3.0e-4
   weight_decay: 0.0
 
 train:
-  max_steps: 200000
+  mixed_precision: bf16
+  use_compile: false
+  grad_clip_norm: 1.0
   log_every: 100
-  eval_every: 2000
+  ckpt_every: 5000
+  ema_decay: 0.9999seed: 42
+
+data:
+  root: /kaggle/input/datasets/ayush1220/cifar10/cifar10
+  dataset: cifar10
+  image_size: 32
+  batch_size: 128
+  num_workers: 4
+
+optimizer:
+  lr: 3.0e-4
+  weight_decay: 0.0
+
+train:
+  mixed_precision: bf16
+  use_compile: false
+  grad_clip_norm: 1.0
+  log_every: 100
   ckpt_every: 5000
   ema_decay: 0.9999

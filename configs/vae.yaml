@@ -1,18 +1,23 @@
 model:
   name: vae
-  image_size: 32
   patch_size: 4
   in_channels: 3
   d_model: 256
   n_heads: 8
-  depth: 8
-  latent_dim: 128
+  depth: 6
+  latent_dim: 4
   attention_type: rope
   mlp_ratio: 4.0
   dropout: 0.0
   bias: true
 
 loss:
-  beta: 0.000001
-  lpips_weight: 0.001
+  beta: 1.0e-6
+  lpips_weight: 0.1
   reconstruction: mse
+
+train:
+  total_steps: 50000
+
+eval:
+  recon_every: 1000
