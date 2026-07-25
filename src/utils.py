@@ -1,20 +1,23 @@
 import copy
 import random
 import yaml
-
+import os
 import numpy as np
 import torch
-
 
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
-
 def load_yaml(path):
 
-    with open(path,"r",encoding="utf-8") as f:
+    with open(
+        path,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
         return yaml.safe_load(f)
 
 
@@ -23,13 +26,12 @@ def merge_configs(default_cfg, stage_cfg):
 
     merged = copy.deepcopy(default_cfg)
 
-
-    for key,value in stage_cfg.items():
+    for key, value in stage_cfg.items():
 
         if (
             key in merged
-            and isinstance(merged[key],dict)
-            and isinstance(value,dict)
+            and isinstance(merged[key], dict)
+            and isinstance(value, dict)
         ):
 
             merged[key] = merge_configs(
@@ -39,8 +41,7 @@ def merge_configs(default_cfg, stage_cfg):
 
         else:
 
-            merged[key]=value
-
+            merged[key] = value
 
     return merged
 
@@ -48,9 +49,13 @@ def merge_configs(default_cfg, stage_cfg):
 
 def load_config(default_path, stage_path):
 
-    default_cfg = load_yaml(default_path)
+    default_cfg = load_yaml(
+        default_path
+    )
 
-    stage_cfg = load_yaml(stage_path)
+    stage_cfg = load_yaml(
+        stage_path
+    )
 
     return merge_configs(
         default_cfg,
@@ -62,7 +67,6 @@ def load_config(default_path, stage_path):
 # ============================================================================
 # Reproducibility
 # ============================================================================
-
 
 def set_seed(seed):
 
@@ -76,22 +80,264 @@ def set_seed(seed):
     if torch.cuda.is_available():
 
         torch.cuda.manual_seed(seed)
+
         torch.cuda.manual_seed_all(seed)
 
 
-    torch.backends.cudnn.deterministic=True
-    torch.backends.cudnn.benchmark=False
+
+# ============================================================================
+# Environment setup
+# ============================================================================
+
+def setup_environment(cfg):
+
+    train_cfg = cfg["train"]
+
+
+    torch.backends.cudnn.benchmark = train_cfg.get(
+        "benchmark",
+        True
+    )
+
+
+    torch.backends.cudnn.deterministic = train_cfg.get(
+        "deterministic",
+        False
+    )
+
+
+    allow_tf32 = train_cfg.get(
+        "allow_tf32",
+        True
+    )
+
+
+    if torch.cuda.is_available():
+
+        torch.backends.cuda.matmul.allow_tf32 = allow_tf32
+
+        torch.backends.cudnn.allow_tf32 = allow_tf32
 
 
 
+    checkpoint_dir = train_cfg.get(
+        "checkpoints_dir",
+        "checkpoints"
+    )
+
+
+    os.makedirs(
+        checkpoint_dir,
+        exist_ok=True
+    )
+
+
+    return checkpoint_dir
+
+
+
+# ============================================================================
+# Accelerator
+# ============================================================================
+
+def build_accelerator(cfg):
+
+    from accelerate import Accelerator
+
+
+    train_cfg = cfg["train"]
+
+
+    accelerator = Accelerator(
+
+        mixed_precision=train_cfg.get(
+            "mixed_precision",
+            "bf16"
+        ),
+
+        gradient_accumulation_steps=train_cfg.get(
+            "gradient_accumulation_steps",
+            1
+        )
+    )
+
+
+    return accelerator
+
+
+
+# ============================================================================
+# Optimizer
+# ============================================================================
+
+def build_optimizer(model, cfg):
+
+    optim_cfg = cfg["optimizer"]
+
+
+    params = build_param_groups(
+        model,
+        optim_cfg["weight_decay"]
+    )
+
+
+    optimizer = torch.optim.AdamW(
+
+        params,
+
+        lr=float(
+            optim_cfg["lr"]
+        ),
+
+        betas=tuple(
+            optim_cfg.get(
+                "betas",
+                (0.9,0.999)
+            )
+        ),
+
+        eps=float(
+            optim_cfg.get(
+                "eps",
+                1e-8
+            )
+        ),
+
+        fused=torch.cuda.is_available()
+
+    )
+
+
+    return optimizer
+
+
+
+# ============================================================================
+# Resume training
+# ============================================================================
+
+def maybe_resume(
+    cfg,
+    model,
+    optimizer=None,
+    ema=None,
+    device="cpu"
+):
+
+    resume = cfg["train"].get(
+        "resume",
+        None
+    )
+
+
+    if resume is None:
+
+        return 0
+
+
+
+    if resume == "latest":
+
+        checkpoint_dir = cfg["train"].get(
+            "checkpoints_dir",
+            "checkpoints"
+        )
+
+
+        resume = get_latest_checkpoint(
+            checkpoint_dir
+        )
+
+
+        if resume is None:
+
+            print(
+                "No checkpoint found, starting from step 0"
+            )
+
+            return 0
+
+
+
+    step = load_checkpoint(
+
+        resume,
+
+        model,
+
+        optimizer,
+
+        ema=ema,
+
+        device=device
+
+    )
+
+
+    print(
+        f"Resumed from {resume} (step {step})"
+    )
+
+
+    return step
+
+
+
+# ============================================================================
+# Latest checkpoint
+# ============================================================================
+def get_latest_checkpoint(directory):
+
+    if not os.path.exists(directory):
+        return None
+
+
+    checkpoints = []
+
+
+    for f in os.listdir(directory):
+
+        if not f.endswith(".pt"):
+            continue
+
+        try:
+
+            step = int(
+                f.split("_")[-1]
+                .replace(".pt","")
+            )
+
+            checkpoints.append(
+                (step,f)
+            )
+
+        except ValueError:
+
+            continue
+
+
+
+    if not checkpoints:
+
+        return None
+
+
+    checkpoints.sort(
+        key=lambda x:x[0]
+    )
+
+
+    return os.path.join(
+        directory,
+        checkpoints[-1][1]
+    )
 # ============================================================================
 # Model utilities
 # ============================================================================
 
-
 def count_parameters(
-        model,
-        trainable_only=False
+    model,
+    trainable_only=False
 ):
 
     if trainable_only:
@@ -113,23 +359,78 @@ def count_parameters(
 def freeze_model(model):
 
     for p in model.parameters():
-        p.requires_grad=False
+
+        p.requires_grad = False
 
 
 
 def unfreeze_model(model):
 
     for p in model.parameters():
-        p.requires_grad=True
+
+        p.requires_grad = True
 
 
 
 # ============================================================================
-# Device
+# Param groups
+# Exclude norm/bias from weight decay
 # ============================================================================
 
+def build_param_groups(
+    model,
+    weight_decay
+):
 
-def move_to_device(batch,device):
+    decay = []
+
+    no_decay = []
+
+
+    for name, param in model.named_parameters():
+
+        if not param.requires_grad:
+
+            continue
+
+
+        if (
+            param.ndim <= 1
+            or "norm" in name.lower()
+        ):
+
+            no_decay.append(param)
+
+        else:
+
+            decay.append(param)
+
+
+
+    return [
+
+        {
+            "params": decay,
+            "weight_decay": weight_decay
+        },
+
+        {
+            "params": no_decay,
+            "weight_decay": 0.0
+        }
+
+    ]
+
+
+
+# ============================================================================
+# Device utilities
+# ============================================================================
+
+def move_to_device(
+    batch,
+    device
+):
 
     if torch.is_tensor(batch):
 
@@ -139,19 +440,31 @@ def move_to_device(batch,device):
         )
 
 
-    if isinstance(batch,(list,tuple)):
+    if isinstance(
+        batch,
+        (list, tuple)
+    ):
 
         return type(batch)(
-            move_to_device(x,device)
+            move_to_device(
+                x,
+                device
+            )
             for x in batch
         )
 
 
-    if isinstance(batch,dict):
+    if isinstance(batch, dict):
 
         return {
-            k:move_to_device(v,device)
+
+            k: move_to_device(
+                v,
+                device
+            )
+
             for k,v in batch.items()
+
         }
 
 
@@ -160,9 +473,8 @@ def move_to_device(batch,device):
 
 
 # ============================================================================
-# Average meter
+# Average Meter
 # ============================================================================
-
 
 class AverageMeter:
 
@@ -175,26 +487,31 @@ class AverageMeter:
 
     def reset(self):
 
-        self.sum=0.
-        self.count=0
-        self.avg=0.
+        self.sum = 0.0
+
+        self.count = 0
+
+        self.avg = 0.0
 
 
 
-    def update(self,value,n=1):
+    def update(
+        self,
+        value,
+        n=1
+    ):
 
-        self.sum += value*n
+        self.sum += value * n
 
         self.count += n
 
-        self.avg = self.sum/self.count
+        self.avg = self.sum / self.count
 
 
 
 # ============================================================================
 # EMA
 # ============================================================================
-
 
 class EMA:
 
@@ -205,45 +522,47 @@ class EMA:
         decay=0.9999
     ):
 
-        self.decay=decay
+        self.decay = decay
 
-        self.shadow={}
+        self.shadow = {}
 
 
-        for name,param in model.named_parameters():
+        for name, param in model.named_parameters():
 
             if param.requires_grad:
 
-                self.shadow[name]=param.data.clone()
+                self.shadow[name] = param.data.clone()
 
 
 
     @torch.no_grad()
-    def update(self,model):
+    def update(self, model):
 
-        for name,param in model.named_parameters():
+        for name, param in model.named_parameters():
 
             if param.requires_grad:
 
-                self.shadow[name].mul_(self.decay)
+                self.shadow[name].mul_(
+                    self.decay
+                )
 
                 self.shadow[name].add_(
                     param.data,
-                    alpha=1-self.decay
+                    alpha=1 - self.decay
                 )
 
 
 
-    def apply_shadow(self,model):
+    def apply_shadow(self, model):
 
-        backup={}
+        backup = {}
 
 
-        for name,param in model.named_parameters():
+        for name, param in model.named_parameters():
 
             if param.requires_grad:
 
-                backup[name]=param.data.clone()
+                backup[name] = param.data.clone()
 
                 param.data.copy_(
                     self.shadow[name]
@@ -254,9 +573,13 @@ class EMA:
 
 
 
-    def restore(self,model,backup):
+    def restore(
+        self,
+        model,
+        backup
+    ):
 
-        for name,param in model.named_parameters():
+        for name, param in model.named_parameters():
 
             if param.requires_grad:
 
@@ -269,8 +592,6 @@ class EMA:
 # ============================================================================
 # Checkpoints
 # ============================================================================
-
-
 def save_checkpoint(
     path,
     model,
@@ -279,48 +600,33 @@ def save_checkpoint(
     scaler=None,
     ema=None,
     epoch=0,
+    cfg=None
 ):
 
-
-    checkpoint={
-
-        "epoch":epoch,
-
-        "model":model.state_dict()
-
+    checkpoint = {
+        "epoch": epoch,
+        "model": model.state_dict()
     }
 
+    if optimizer is not None:
+        checkpoint["optimizer"] = optimizer.state_dict()
 
-    if optimizer:
+    if scheduler is not None:
+        checkpoint["scheduler"] = scheduler.state_dict()
 
-        checkpoint["optimizer"]=optimizer.state_dict()
+    if scaler is not None:
+        checkpoint["scaler"] = scaler.state_dict()
 
+    if ema is not None:
+        checkpoint["ema"] = ema.shadow
 
-
-    if scheduler:
-
-        checkpoint["scheduler"]=scheduler.state_dict()
-
-
-
-    if scaler:
-
-        checkpoint["scaler"]=scaler.state_dict()
-
-
-
-    if ema:
-
-        checkpoint["ema"]=ema.shadow
-
-
+    if cfg is not None:
+        checkpoint["config"] = cfg
 
     torch.save(
         checkpoint,
         path
     )
-
-
 
 
 def load_checkpoint(
@@ -333,11 +639,11 @@ def load_checkpoint(
     device="cpu"
 ):
 
-
-    checkpoint=torch.load(
+    checkpoint = torch.load(
         path,
         map_location=device
     )
+
 
 
     model.load_state_dict(
@@ -345,30 +651,47 @@ def load_checkpoint(
     )
 
 
-    if optimizer and "optimizer" in checkpoint:
+
+    if (
+        optimizer is not None
+        and "optimizer" in checkpoint
+    ):
 
         optimizer.load_state_dict(
             checkpoint["optimizer"]
         )
 
 
-    if scheduler and "scheduler" in checkpoint:
+
+    if (
+        scheduler is not None
+        and "scheduler" in checkpoint
+    ):
 
         scheduler.load_state_dict(
             checkpoint["scheduler"]
         )
 
 
-    if scaler and "scaler" in checkpoint:
+
+    if (
+        scaler is not None
+        and "scaler" in checkpoint
+    ):
 
         scaler.load_state_dict(
             checkpoint["scaler"]
         )
 
 
-    if ema and "ema" in checkpoint:
+
+    if (
+        ema is not None
+        and "ema" in checkpoint
+    ):
 
         ema.shadow = checkpoint["ema"]
+
 
 
     return checkpoint["epoch"]
@@ -376,18 +699,22 @@ def load_checkpoint(
 
 
 # ============================================================================
-# Infinite loader
+# Infinite DataLoader
 # ============================================================================
-
 
 class InfiniteDataLoader:
 
 
-    def __init__(self,dataloader):
+    def __init__(
+        self,
+        dataloader
+    ):
 
-        self.loader=dataloader
+        self.loader = dataloader
 
-        self.iterator=iter(dataloader)
+        self.iterator = iter(
+            dataloader
+        )
 
 
 
@@ -401,11 +728,17 @@ class InfiniteDataLoader:
 
         try:
 
-            return next(self.iterator)
+            return next(
+                self.iterator
+            )
 
 
         except StopIteration:
 
-            self.iterator=iter(self.loader)
+            self.iterator = iter(
+                self.loader
+            )
 
-            return next(self.iterator)
+            return next(
+                self.iterator
+            )
