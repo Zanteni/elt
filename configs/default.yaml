@@ -17,23 +17,8 @@ train:
   grad_clip_norm: 1.0
   log_every: 100
   ckpt_every: 5000
-  ema_decay: 0.9999seed: 42
-
-data:
-  root: /kaggle/input/datasets/ayush1220/cifar10/cifar10
-  dataset: cifar10
-  image_size: 32
-  batch_size: 128
-  num_workers: 4
-
-optimizer:
-  lr: 3.0e-4
-  weight_decay: 0.0
-
-train:
-  mixed_precision: bf16
-  use_compile: false
-  grad_clip_norm: 1.0
-  log_every: 100
-  ckpt_every: 5000
   ema_decay: 0.9999
+  benchmark: true
+  deterministic: false
+  allow_tf32: true
+  checkpoints_dir: checkpoints
