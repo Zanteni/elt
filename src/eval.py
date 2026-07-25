@@ -69,3 +69,27 @@ def visualize_reconstruction(originals, reconstructions, save_path=None):
         plt.imshow(grid.permute(1, 2, 0))
         plt.axis("off")
         plt.show()
+
+@torch.no_grad()
+def compute_fid(fid_metric, real_loader, model, vae, diffusion, cfg, device):
+    fid_metric.reset()
+
+    num_samples = cfg["eval"]["fid_num_samples"]  # e.g. 1000
+
+    for batch in real_loader:
+        images = extract_images(batch).to(device)
+        images = (images + 1) / 2  # [-1,1] -> [0,1] for torchmetrics
+        fid_metric.update(images, real=True)
+
+    generated = 0
+    while generated < num_samples:
+        batch_size = min(cfg["eval"]["sample_batch_size"], num_samples - generated)
+        y = ...  # per your conditioning setup
+        z0 = diffusion.ddim_sample(model, shape=(batch_size, ...), y=y,
+                                    steps=cfg["eval"]["ddim_steps"], device=device)
+        images = vae.decode(z0)
+        images = (images + 1) / 2
+        fid_metric.update(images, real=False)
+        generated += batch_size
+
+    return fid_metric.compute().item()
