@@ -367,8 +367,6 @@ for step in range(
 
                 device=device,
 
-                loss_fn=criterion
-
             )
 
 
