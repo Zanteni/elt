@@ -637,7 +637,7 @@ def build_vae(cfg) -> nn.Module:
     Build VAE from yaml configuration.
     """
     vae_cfg = VAEConfig(
-        image_size=cfg["model"]["image_size"],
+        image_size=cfg["data"]["image_size"],
         patch_size=cfg["model"]["patch_size"],
         in_channels=cfg["model"]["in_channels"],
 
