@@ -657,29 +657,14 @@ def build_vae(cfg) -> nn.Module:
     model = VAE(config=vae_cfg)
     return model
 # ---------------------------------------------------------------------------
+MODEL_BUILDERS = {
+    "vae": build_vae,
+    # "dit": build_dit,
+    # "elt": build_elt,
+}
 
 def build_model(cfg):
-
     name = cfg["model"]["name"]
-
-
-    if name == "vae":
-        return build_vae(cfg)
-
-
-    # elif name == "dit":
-    #     return DiT(
-    #         cfg
-    #     )
-
-
-    # elif name == "elt":
-    #     return ELT(
-    #         cfg
-    #     )
-
-
-    else:
-        raise ValueError(
-            f"Unknown model type {name}"
-        )
+    if name not in MODEL_BUILDERS:
+        raise ValueError(f"Unknown model type '{name}', expected one of {list(MODEL_BUILDERS)}")
+    return MODEL_BUILDERS[name](cfg)
