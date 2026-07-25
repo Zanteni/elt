@@ -1,119 +1,71 @@
 import torch
 import torchvision.utils as vutils
 import matplotlib.pyplot as plt
+from data import extract_images 
 
 
 @torch.no_grad()
-def evaluate_reconstruction(
-    model,
-    dataloader,
-    device="cuda",
-    num_images=8,
-):
+def evaluate_reconstruction(model, dataloader, device=None, num_images=8):
     """
-    Evaluate VAE reconstruction quality.
+    Evaluate VAE reconstruction quality over the full dataloader.
 
     Returns:
-        reconstruction mse
-        original images
-        reconstructed images
+        reconstruction mse (averaged over every batch in dataloader)
+        originals, reconstructions (first num_images, for visualization only)
     """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    was_training = model.training
     model.eval()
-    model.to(device)
-
 
     total_loss = 0
     count = 0
-
     originals = []
     reconstructions = []
 
+    try:
+        for batch in dataloader:
+            images = extract_images(batch).to(device, non_blocking=True)
 
-    for images in dataloader:
+            out = model(images)
+            recon = out["recon"]
 
-        images = images.to(device)
+            loss = torch.mean((images - recon) ** 2)
+            total_loss += loss.item()
+            count += 1
 
+            if len(originals) < num_images:
+                remaining = num_images - len(originals)
+                originals.append(images[:remaining].cpu())
+                reconstructions.append(recon[:remaining].cpu())
+    finally:
+        model.train(was_training)
 
-        out = model(images)
-
-        recon = out["recon"]
-
-
-        loss = torch.mean(
-            (images - recon) ** 2
-        )
-
-
-        total_loss += loss.item()
-        count += 1
-
-
-        if len(originals) < num_images:
-
-            originals.append(
-                images.cpu()
-            )
-
-            reconstructions.append(
-                recon.cpu()
-            )
-
-
-        if len(originals) >= num_images:
-            break
-
-
-
-    originals = torch.cat(
-        originals,
-        dim=0
-    )[:num_images]
-
-
-    reconstructions = torch.cat(
-        reconstructions,
-        dim=0
-    )[:num_images]
-
+    originals = torch.cat(originals, dim=0)[:num_images]
+    reconstructions = torch.cat(reconstructions, dim=0)[:num_images]
 
     return {
-        "reconstruction_mse": total_loss/count,
+        "reconstruction_mse": total_loss / count,
         "originals": originals,
-        "reconstructions": reconstructions
+        "reconstructions": reconstructions,
     }
 
 
-
-def visualize_reconstruction(
-    originals,
-    reconstructions,
-):
-
-    comparison = torch.cat(
-        [
-            originals,
-            reconstructions
-        ],
-        dim=0
-    )
-
+def visualize_reconstruction(originals, reconstructions, save_path=None):
+    comparison = torch.cat([originals, reconstructions], dim=0)
 
     grid = vutils.make_grid(
         comparison,
         nrow=len(originals),
         normalize=True,
-        value_range=(-1,1)
+        value_range=(-1, 1),
     )
 
-
-    plt.figure(
-        figsize=(12,4)
-    )
-
-    plt.imshow(
-        grid.permute(1,2,0)
-    )
-
-    plt.axis("off")
-    plt.show()
+    if save_path is not None:
+        vutils.save_image(grid, save_path)
+    else:
+        plt.figure(figsize=(12, 4))
+        plt.imshow(grid.permute(1, 2, 0))
+        plt.axis("off")
+        plt.show()
