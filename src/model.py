@@ -574,7 +574,6 @@ class VAEDecoder(nn.Module):
     def __init__(self, config:VAEConfig):
         super().__init__()
         self.config = config
-        # self.latent_proj = nn.Linear(latent_dim, d_model)
         self.latent_proj = nn.Linear(config.latent_dim,config.d_model)
         if config.attention_type == "mha":
             pos_embed = build_2d_sincos_pos_embed(d_model=config.d_model,grid_h=config.grid_h,grid_w=config.grid_w)
