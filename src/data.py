@@ -96,22 +96,43 @@ def extract_images(batch):
 # ===========================================================================
 # Public: image DataLoader (config only)
 # ===========================================================================
-
 def build_dataloader(cfg, split="train"):
-    """
-    cfg   : cfg["data"] sub-dict
-    split : "train" or "test" -- maps directly to the folder name under root
-    """
+
     transform = transforms.Compose([
         transforms.Resize((cfg["image_size"], cfg["image_size"])),
         transforms.ToTensor(),
         normalize_to_neg_one_to_one,
     ])
 
-    dataset = datasets.ImageFolder(root=f"{cfg['root']}/{split}", transform=transform)
-    return _make_loader(dataset, cfg, is_train=(split == "train"))
+    dataset_name = cfg["dataset"].lower()
 
+    if dataset_name == "cifar10":
 
+        dataset = datasets.CIFAR10(
+            root=cfg["root"],
+            train=(split == "train"),
+            transform=transform,
+            download=cfg.get("download", True),
+        )
+
+    elif dataset_name == "imagefolder":
+
+        dataset = datasets.ImageFolder(
+            root=f"{cfg['root']}/{split}",
+            transform=transform,
+        )
+
+    else:
+
+        raise ValueError(
+            f"Unknown dataset '{dataset_name}'"
+        )
+
+    return _make_loader(
+        dataset,
+        cfg,
+        is_train=(split == "train"),
+    )
 # ===========================================================================
 # Public: latent DataLoader (config only)
 # ===========================================================================
