@@ -1,0 +1,93 @@
+# ============================================================
+# Model
+# ============================================================
+
+model:
+
+  name: dit
+
+  variant: DiT-XL
+
+
+  dit:
+
+    # Must match VAE latent dimension
+    latent_dim: 4
+
+
+    # Transformer MLP expansion
+    mlp_ratio: 4.0
+
+
+    # VAE latent spatial grid
+    # 32x32 image -> 8x8 latent
+    grid_h: 8
+
+    grid_w: 8
+
+
+    # Conditioning
+    # null = unconditional diffusion
+    num_classes: null
+
+    cfg_dropout: 0.1
+
+
+    dropout: 0.1
+
+
+
+  attention:
+
+    # mha | rope
+    type: rope
+
+
+
+
+# ============================================================
+# Diffusion
+# ============================================================
+
+diffusion:
+
+  schedule: cosine
+
+
+  timestep: 1000
+
+
+  beta_start: 1.0e-4
+
+  beta_end: 0.02
+
+
+  cosine_s: 0.008
+
+
+  # Sampling method
+  sampler: ddim
+
+
+  # DiT predicts:
+  # epsilon + variance
+  learn_sigma: true
+
+
+
+# ============================================================
+# Latent cache
+# ============================================================
+
+# Used by build_latent_dataloader()
+
+latent_cache_path_train: ./data/latents/train_latents.pt
+
+latent_cache_path_test: ./data/latents/test_latents.pt
+
+
+# Optional labels
+# Keep absent for unconditional training
+#
+# label_cache_path_train: ./data/latents/train_labels.pt
+# label_cache_path_test: ./data/latents/test_labels.pt
