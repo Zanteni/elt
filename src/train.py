@@ -12,6 +12,7 @@ from utils import (
     set_seed,
     setup_environment,
     build_accelerator,
+    build_logger,
     build_optimizer,
     EMA,
     save_checkpoint,
@@ -20,7 +21,7 @@ from utils import (
     InfiniteDataLoader,
 )
 
-from eval import evaluate_reconstruction
+from eval import build_evaluators
 
 
 # =====================================================
@@ -53,12 +54,7 @@ device = accelerator.device
 
 if accelerator.is_main_process:
 
-    wandb.init(
-        project="elt-vae",
-        name="vae-stage1",
-        config=cfg
-    )
-
+    build_logger(cfg,accelerator)
 
 # =====================================================
 # Dataset
@@ -137,6 +133,22 @@ ema = EMA(
     decay=float(
         cfg["train"]["ema_decay"]
     )
+)
+
+# =====================================================
+# Evaluators
+# =====================================================
+
+evaluators = build_evaluators(
+    cfg["eval"],
+    model=raw_model,
+    vae=None,
+    diffusion=None,
+    loaders={
+        "test": test_loader
+    },
+    fid_metric=None,
+    device=device
 )
 
 
@@ -336,105 +348,65 @@ for step in range(
 
         running_count = 0
 
-
-
     # =================================================
     # Evaluation
     # =================================================
 
     if (
-
         step % cfg["eval"]["recon_every"] == 0
-
         and step > 0
-
     ):
 
-
         if accelerator.is_main_process:
-
 
             backup = ema.apply_shadow(
                 raw_model
             )
 
+            raw_model.eval()
 
-            result = evaluate_reconstruction(
+            result = evaluators["reconstruction"].evaluate()
 
-                raw_model,
+            originals = result["images"]["originals"]
 
-                test_loader,
-
-                device=device,
-
-            )
-
+            reconstructions = result["images"]["reconstructions"]
 
             comparison = torch.cat(
-
                 [
-
-                    result["originals"],
-
-                    result["reconstructions"]
-
+                    originals,
+                    reconstructions
                 ],
-
                 dim=0
-
             )
-
 
             grid = torchvision.utils.make_grid(
-
                 comparison,
-
-                nrow=len(
-                    result["originals"]
-                ),
-
+                nrow=len(originals),
                 normalize=True,
-
-                value_range=(-1,1)
-
+                value_range=(-1, 1)
             )
-
 
             wandb.log(
-
                 {
-
                     "eval/reconstruction_grid":
-
                         wandb.Image(
-
                             grid,
-
                             caption="top: original | bottom: reconstruction"
-
                         ),
 
-
                     "eval/reconstruction_mse":
+                        result["metrics"]["reconstruction_mse"],
 
-                        result["reconstruction_mse"],
-
-
-                    "step":step
-
+                    "step": step
                 }
-
             )
-
 
             ema.restore(
                 raw_model,
                 backup
             )
 
-
             raw_model.train()
-
 
 
     # =================================================
@@ -442,39 +414,23 @@ for step in range(
     # =================================================
 
     if (
-
         step % cfg["train"]["ckpt_every"] == 0
-
         and step > 0
-
     ):
-
 
         if accelerator.is_main_process:
 
-
             save_checkpoint(
-
                 os.path.join(
-
                     checkpoint_dir,
-
-                    f"vae_{step}.pt"
-
+                    f"{cfg['model']['name']}_{step}.pt"
                 ),
-
                 raw_model,
-
                 optimizer,
-
                 ema=ema,
-
                 epoch=step,
-
                 cfg=cfg
-
             )
-
 
 
 # =====================================================
@@ -483,28 +439,16 @@ for step in range(
 
 if accelerator.is_main_process:
 
-
     save_checkpoint(
-
         os.path.join(
-
             checkpoint_dir,
-
-            "vae_final.pt"
-
+            f"{cfg['model']['name']}_final.pt"
         ),
-
         raw_model,
-
         optimizer,
-
         ema=ema,
-
         epoch=total_steps,
-
         cfg=cfg
-
     )
-
 
     wandb.finish()
