@@ -1,24 +1,75 @@
 seed: 42
 
+
+# ============================================================
+# Data
+# ============================================================
+
 data:
+
   root: ./data
+
   dataset: cifar10
+
   image_size: 32
+
   batch_size: 128
+
   num_workers: 4
 
+
+
+# ============================================================
+# Optimizer
+# ============================================================
+
 optimizer:
+
   lr: 3.0e-4
+
   weight_decay: 0.0
 
+
+
+# ============================================================
+# Training
+# ============================================================
+
 train:
+
+  # Total optimization steps
+  total_steps: 100000
+
+
+  # Precision
   mixed_precision: bf16
+
+
+  # Performance
   use_compile: false
-  grad_clip_norm: 1.0
-  log_every: 100
-  ckpt_every: 5000
-  ema_decay: 0.9999
+
   benchmark: true
-  deterministic: false
+
   allow_tf32: true
+
+
+  # Stability
+  grad_clip_norm: 1.0
+
+
+  # Logging
+  log_every: 100
+
+
+  # Checkpoints
+  ckpt_every: 5000
+
   checkpoints_dir: checkpoints
+
+
+  # EMA
+  ema_decay: 0.9999
+
+
+  # Reproducibility
+  deterministic: false
