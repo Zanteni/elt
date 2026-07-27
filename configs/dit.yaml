@@ -65,3 +65,6 @@ diffusion:
 sampling:
 
   sampler: ddim
+
+loss:
+  reconstruction: mse
