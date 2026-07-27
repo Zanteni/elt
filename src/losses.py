@@ -189,13 +189,41 @@ class VAELoss(nn.Module):
 # ============================================================================
 
 class DiffusionLoss(nn.Module):
-    def __init__(self, loss_type: str = "mse"):
-        super().__init__()
-        self.loss_fn = SUPPORTED_RECON_LOSSES[loss_type]  # reuse the same registry
+    """
+    Generic regression loss for diffusion models.
 
-    def forward(self, pred_noise, target_noise):
-        loss = self.loss_fn(pred_noise, target_noise)
-        return {"loss": loss}
+    The loss is intentionally unaware of the prediction objective
+    (epsilon, v, x0, etc.). It simply compares the model prediction
+    against the target produced by GaussianDiffusion.
+    """
+
+    def __init__(self,loss_type: str = "mse"):
+        super().__init__()
+
+        assert loss_type in SUPPORTED_RECON_LOSSES, (
+            f"Unknown loss '{loss_type}'. "
+            f"Supported: {list(SUPPORTED_RECON_LOSSES.keys())}"
+        )
+
+        self.loss_fn = SUPPORTED_RECON_LOSSES[loss_type]
+
+    def forward(self,prediction: torch.Tensor,target: torch.Tensor,weight: torch.Tensor | None = None):
+
+        loss = self.loss_fn(prediction,target,reduction="none")
+
+        if weight is not None:
+
+            while weight.ndim < loss.ndim:
+                weight = weight.unsqueeze(-1)
+
+            loss = loss * weight
+
+        loss = loss.mean()
+
+        return {
+            "loss": loss,
+        }
+
     
 def build_loss(cfg):
 
