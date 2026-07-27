@@ -1,24 +1,23 @@
-seed: 42
+model:
+  name: vae
+  patch_size: 4
+  in_channels: 3
+  d_model: 256
+  n_heads: 8
+  depth: 6
+  latent_dim: 4
+  attention_type: rope
+  mlp_ratio: 4.0
+  dropout: 0.0
+  bias: true
 
-data:
-  root: ./data
-  dataset: cifar10
-  image_size: 32
-  batch_size: 128
-  num_workers: 4
-
-optimizer:
-  lr: 3.0e-4
-  weight_decay: 0.0
+loss:
+  beta: 1.0e-6
+  lpips_weight: 0.1
+  reconstruction: mse
 
 train:
-  mixed_precision: bf16
-  use_compile: false
-  grad_clip_norm: 1.0
-  log_every: 100
-  ckpt_every: 5000
-  ema_decay: 0.9999
-  benchmark: true
-  deterministic: false
-  allow_tf32: true
-  checkpoints_dir: checkpoints
+  total_steps: 50000
+
+eval:
+  recon_every: 1000
