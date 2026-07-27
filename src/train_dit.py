@@ -215,7 +215,6 @@ running_loss = 0.0
 count = 0
 
 
-
 for step in range(
     start_step,
     total_steps
@@ -235,35 +234,34 @@ for step in range(
     )
 
 
-# -------------------------------------------------
-# VAE Encoder
-# -------------------------------------------------
+    # -------------------------------------------------
+    # VAE Encoder (Frozen)
+    # -------------------------------------------------
 
-with torch.no_grad():
+    with torch.no_grad():
 
-    mu, logvar = vae.encoder(
-        images
-    )
+        mu, logvar = vae.encoder(
+            images
+        )
 
-    z0 = mu
+        z0 = mu
 
 
-    # Expected:
-    # z0: (B, N, latent_dim)
-    # example: (128, 64, 4)
+        # VAE latent from ViT-VAE:
+        # expected: (B, N, latent_dim)
 
-    assert z0.ndim == 3, (
-        f"Expected latent tokens (B,N,D), got {z0.shape}"
-    )
+        assert z0.ndim == 3, (
+            f"Expected latent tokens (B,N,D), got {z0.shape}"
+        )
+
 
     # -------------------------------------------------
     # Diffusion forward
     # -------------------------------------------------
 
-    zt,t,noise = diffusion(
+    zt, t, noise = diffusion(
         z0
     )
-
 
 
     # -------------------------------------------------
@@ -282,12 +280,15 @@ with torch.no_grad():
             )
 
 
+            # DiT with learn_sigma=True returns:
+            # eps_pred, variance prediction
+
             if isinstance(
                 eps_pred,
                 tuple
             ):
 
-                eps_pred,_ = eps_pred
+                eps_pred, _ = eps_pred
 
 
 
@@ -355,8 +356,8 @@ with torch.no_grad():
 
             wandb.log(
                 {
-                    "train/loss":avg_loss,
-                    "step":step
+                    "train/loss": avg_loss,
+                    "step": step
                 }
             )
 
@@ -376,11 +377,8 @@ with torch.no_grad():
     # -------------------------------------------------
 
     if (
-
         step % cfg["train"]["ckpt_every"] == 0
-
         and step > 0
-
     ):
 
         if accelerator.is_main_process:
@@ -403,10 +401,6 @@ with torch.no_grad():
 
                 cfg=cfg
             )
-
-
-
-
 # =====================================================
 # Final checkpoint
 # =====================================================
