@@ -61,7 +61,7 @@ diffusion:
   cosine_s: 0.008
 
   learn_sigma: true
-  
-  sampling:
+
+sampling:
 
   sampler: ddim
