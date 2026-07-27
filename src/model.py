@@ -655,10 +655,233 @@ def build_vae(cfg) -> nn.Module:
 
     model = VAE(config=vae_cfg)
     return model
+
+# ============================================================
+# DiT Block utilities and helpers
+# ============================================================
+
+
+# ============================================================
+# Config
+# ============================================================
+
+@dataclass
+class DiTConfig:
+    latent_dim: int
+    hidden_size: int  # d_model
+    depth: int
+    num_heads: int
+    mlp_ratio: float
+    grid_h: int
+    grid_w: int
+    num_classes: Optional[int] = None
+    cfg_dropout: float = 0.1
+    dropout : float =0.01
+    # learn_sigma intentionally NOT here -- single source of truth is
+    # cfg["diffusion"]["learn_sigma"], read separately in build_dit below
+    # and passed into DiT directly, not folded into this dataclass.
+    # in_channels/out_channels intentionally NOT here either -- both
+    # derived from latent_dim (+ learn_sigma) inside DiT.__init__.
+
+
+# ============================================================
+# Factory
+# ============================================================
+
+def build_dit(cfg):
+
+    dit_cfg = DiTConfig(
+        **cfg["model"]["dit"]
+    )
+
+    attn_cfg = AttentionConfig(
+        d_model=dit_cfg.hidden_size,
+        n_heads=dit_cfg.num_heads,
+        attention_type=cfg["model"]["attention"]["type"],
+        dropout=dit_cfg.dropout,
+        bias=True,
+        grid_h=dit_cfg.grid_h,
+        grid_w=dit_cfg.grid_w,
+    )
+
+    return DiT(
+        dit_cfg,
+        attn_cfg,
+        num_timesteps=cfg["diffusion"]["timestep"],
+        learn_sigma=cfg["diffusion"]["learn_sigma"],
+    )
+
+# ============================================================
+# Components -- signatures only, fill in forward() one at a time
+# ============================================================
+
+class TimestepEmbedder(nn.Module):
+    def __init__(self, cfg: DiTConfig,num_timesteps:int):
+        super().__init__()
+        positions = torch.arange(num_timesteps,dtype=torch.long)
+        embedding_cache = build_1d_sincos_pos_embed(dim=cfg.hidden_size,positions=positions)
+        self.register_buffer("embedding_cache",embedding_cache)
+        mlp_hidden_dim = int(cfg.hidden_size*cfg.mlp_ratio)
+        self.mlp = nn.Sequential(
+            nn.Linear(cfg.hidden_size,mlp_hidden_dim),
+            nn.SiLU(),
+            nn.Linear(mlp_hidden_dim,cfg.hidden_size)
+        )
+
+    def timestep_embedding(self,t:torch.Tensor)->torch.Tensor:
+        emb = self.embedding_cache[t]
+        return emb
+    
+    def forward(self, t):
+        emb = self.timestep_embedding(t)
+        return self.mlp(emb)
+
+
+class LabelEmbedder(nn.Module):
+    def __init__(self, num_classes: int, hidden_size: int, cfg_dropout: float):
+        super().__init__()
+        self.embedding = nn.Embedding(num_classes+1,hidden_size)
+        self.cfg_dropout = cfg_dropout
+        self.null_index = num_classes
+    def forward(self, y):
+        if self.training and self.cfg_dropout > 0:
+            drop_mask = torch.rand(y.shape[0], device=y.device) < self.cfg_dropout
+            y = torch.where(drop_mask, self.null_index, y)
+        return self.embedding(y)
+
+class AdaLNModulation(nn.Module):
+    def __init__(self, cfg: DiTConfig, num_modulations: int):
+        super().__init__()
+        self.num_modulations = num_modulations
+        self.mlp = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(cfg.hidden_size,int(cfg.hidden_size*num_modulations))
+        )
+         # AdaLN-Zero initialization
+        nn.init.constant_(self.mlp[-1].weight,0)
+
+        nn.init.constant_(self.mlp[-1].bias,0)
+
+    def forward(self, c:torch.Tensor)->torch.Tensor:
+        return self.mlp(c)
+
+
+class AdaLN(nn.Module):
+    def __init__(self, cfg: DiTConfig):
+        super().__init__()
+        self.norm = nn.LayerNorm(cfg.hidden_size,elementwise_affine=False)
+
+    def forward(self, x:torch.Tensor, shift:torch.Tensor, scale:torch.Tensor):
+        x = self.norm(x)
+        x = x*(1+scale.unsqueeze(1))
+        x = x + shift.unsqueeze(1)
+        return x
+    
+class DiTBlock(nn.Module):
+    def __init__(self, cfg: DiTConfig,attn_cfg:AttentionConfig):
+        super().__init__()
+        self.attn = build_attention(attn_cfg)
+        self.mlp = MLP(in_dim=cfg.hidden_size,mlp_ratio=cfg.mlp_ratio,dropout=cfg.dropout,out_dim=cfg.hidden_size)
+        self.adaLN_attn = AdaLN(cfg)
+        self.adaLN_mlp = AdaLN(cfg)
+        self.modulation = AdaLNModulation(cfg,num_modulations=6)
+
+    def forward(self, x:torch.Tensor, c:torch.Tensor):
+        modulations = self.modulation(c)
+        shift_mha,scale_mha,gate_mha,shift_mlp,scale_mlp,gate_mlp = torch.chunk(modulations,6,dim=-1)
+        h = self.adaLN_attn(x,shift_mha,scale_mha)
+        h = self.attn(h)
+        x = x+gate_mha.unsqueeze(1)*h
+        h = self.adaLN_mlp(x,shift_mlp,scale_mlp)
+        h = self.mlp(h)
+        x = x + gate_mlp.unsqueeze(1)*h
+        return x
+
+class FinalLayer(nn.Module):
+    def __init__(self, cfg: DiTConfig, out_channels: int):
+        super().__init__()
+        self.modulation = AdaLNModulation(cfg,num_modulations=2)
+        self.norm = AdaLN(cfg)
+        self.linear = nn.Linear(cfg.hidden_size,out_channels)
+
+          # Final zero initialization
+        nn.init.constant_(self.linear.weight,0)
+        nn.init.constant_(self.linear.bias,0)
+
+    def forward(self, x:torch.Tensor, c:torch.Tensor):
+        shift, scale = torch.chunk(self.modulation(c),2,dim=-1)
+        x = self.norm(x,shift,scale)
+        x = self.linear(x)
+
+        return x
+
+# ============================================================
+# DiT
+# ============================================================
+
+class DiT(nn.Module):
+    def __init__(self,cfg: DiTConfig,attn_cfg: AttentionConfig,num_timesteps: int,learn_sigma: bool):
+        super().__init__()
+
+        self.cfg = cfg
+        if attn_cfg.attention_type == "mha":
+
+            pos_embed = build_2d_sincos_pos_embed(
+                d_model=cfg.hidden_size,
+                grid_h=cfg.grid_h,
+                grid_w=cfg.grid_w
+            )
+
+            self.register_buffer(
+                "pos_embed",
+                pos_embed.unsqueeze(0),
+                persistent=False
+            )
+
+        else:
+            self.pos_embed = None
+
+        self.num_timesteps = num_timesteps
+        self.learn_sigma = learn_sigma
+
+        self.in_channels = cfg.latent_dim
+        self.out_channels = cfg.latent_dim * (2 if learn_sigma else 1)
+
+        self.effective_num_classes = (cfg.num_classes if cfg.num_classes is not None else 1)
+        self.x_embedder = nn.Linear(cfg.latent_dim,cfg.hidden_size)
+        self.t_embedder = TimestepEmbedder(cfg,num_timesteps)
+        self.y_embedder = LabelEmbedder(self.effective_num_classes,cfg.hidden_size,cfg.cfg_dropout)
+        self.blocks = nn.ModuleList(
+            [ DiTBlock(cfg,attn_cfg)for _ in range(cfg.depth)]
+            )
+        self.final_layer = FinalLayer(cfg,self.out_channels)
+    def forward(self,z,t,y=None):
+        # z:
+        # (B,N,latent_dim)
+
+        x = self.x_embedder(z)
+        if self.pos_embed is not None:
+            x = x+self.pos_embed
+
+        t_emb = self.t_embedder(t)
+
+        if y is None:
+            y = torch.full((z.shape[0],),self.effective_num_classes,device=z.device,dtype=torch.long)  #null token index
+        y_emb = self.y_embedder(y)
+    
+        c = t_emb + y_emb
+        for block in self.blocks:
+            x = block(x,c)
+        x = self.final_layer(x,c)
+        if self.learn_sigma:
+            eps, v = torch.chunk(x, 2, dim=-1)
+            return eps, v
+
+        return x
 # ---------------------------------------------------------------------------
 MODEL_BUILDERS = {
     "vae": build_vae,
-    # "dit": build_dit,
+    "dit": build_dit,
     # "elt": build_elt,
 }
 
