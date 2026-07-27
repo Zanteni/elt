@@ -629,32 +629,91 @@ class VAE(nn.Module):
         }
 
 # ---------------------------------------------------------------------------
-# . Build A factory
+# VAE Variants
 # ---------------------------------------------------------------------------
-def build_vae(cfg) -> nn.Module:
-    """
-    Build VAE from yaml configuration.
-    """
-    vae_cfg = VAEConfig(
+
+VAE_CONFIGS = {
+
+    "T": {
+        "d_model": 128,
+        "depth": 4,
+        "n_heads": 4,
+    },
+
+    "S": {
+        "d_model": 192,
+        "depth": 6,
+        "n_heads": 6,
+    },
+
+    "B": {
+        "d_model": 256,
+        "depth": 6,
+        "n_heads": 8,
+    },
+
+    "L": {
+        "d_model": 384,
+        "depth": 12,
+        "n_heads": 12,
+    },
+
+    "XL": {
+        "d_model": 512,
+        "depth": 16,
+        "n_heads": 16,
+    },
+
+    "H": {
+        "d_model": 768,
+        "depth": 24,
+        "n_heads": 24,
+    },
+
+    "G": {
+        "d_model": 1024,
+        "depth": 32,
+        "n_heads": 32,
+    },
+}
+# ---------------------------------------------------------------------------
+# Build VAE
+# ---------------------------------------------------------------------------
+
+def build_vae(cfg):
+
+    variant = cfg["model"]["variant"]
+
+    if variant not in VAE_CONFIGS:
+        raise ValueError(
+            f"Unknown VAE variant '{variant}'. "
+            f"Available: {list(VAE_CONFIGS.keys())}"
+        )
+
+    variant_cfg = VAE_CONFIGS[variant]
+    vae_cfg = cfg["model"]["vae"]
+
+    model_cfg = VAEConfig(
+
         image_size=cfg["data"]["image_size"],
-        patch_size=cfg["model"]["patch_size"],
-        in_channels=cfg["model"]["in_channels"],
 
-        d_model=cfg["model"]["d_model"],
-        n_heads=cfg["model"]["n_heads"],
-        depth=cfg["model"]["depth"],
+        patch_size=vae_cfg["patch_size"],
+        in_channels=vae_cfg["in_channels"],
 
-        latent_dim=cfg["model"]["latent_dim"],
+        d_model=variant_cfg["d_model"],
+        depth=variant_cfg["depth"],
+        n_heads=variant_cfg["n_heads"],
 
-        attention_type=cfg["model"]["attention_type"],
+        latent_dim=vae_cfg["latent_dim"],
 
-        mlp_ratio=cfg["model"].get("mlp_ratio", 4.0),
-        dropout=cfg["model"].get("dropout", 0.0),
-        bias=cfg["model"].get("bias", True),
+        attention_type=vae_cfg["attention_type"],
+
+        mlp_ratio=vae_cfg["mlp_ratio"],
+        dropout=vae_cfg["dropout"],
+        bias=vae_cfg["bias"],
     )
 
-    model = VAE(config=vae_cfg)
-    return model
+    return VAE(model_cfg)
 
 # ============================================================
 # DiT Block utilities and helpers
