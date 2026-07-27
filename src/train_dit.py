@@ -235,37 +235,26 @@ for step in range(
     )
 
 
-    # -------------------------------------------------
-    # VAE Encoder
-    # -------------------------------------------------
+# -------------------------------------------------
+# VAE Encoder
+# -------------------------------------------------
 
-    with torch.no_grad():
+with torch.no_grad():
 
-        mu, logvar = vae.encoder(
-            images
-        )
+    mu, logvar = vae.encoder(
+        images
+    )
 
-        z0 = mu
-
-
-
-        # B,C,H,W -> B,N,D
-
-        B,C,H,W = z0.shape
+    z0 = mu
 
 
-        z0 = z0.permute(
-            0,2,3,1
-        )
+    # Expected:
+    # z0: (B, N, latent_dim)
+    # example: (128, 64, 4)
 
-
-        z0 = z0.reshape(
-            B,
-            H*W,
-            C
-        )
-
-
+    assert z0.ndim == 3, (
+        f"Expected latent tokens (B,N,D), got {z0.shape}"
+    )
 
     # -------------------------------------------------
     # Diffusion forward
