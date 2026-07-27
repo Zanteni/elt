@@ -1,95 +1,497 @@
+# ============================================================
+# eval.py
+# ============================================================
+
 import torch
 import torchvision.utils as vutils
 import matplotlib.pyplot as plt
-from data import extract_images 
+
+from dataclasses import dataclass
+
+from data import extract_images
 
 
-@torch.no_grad()
-def evaluate_reconstruction(model, dataloader, device=None, num_images=8):
+
+# ============================================================
+# 1. Evaluation Configs
+# ============================================================
+
+@dataclass
+class ReconstructionEvalConfig:
+    enabled: bool = True
+    num_images: int = 8
+
+
+
+@dataclass
+class FIDEvalConfig:
+    enabled: bool = True
+    fid_num_samples: int = 1000
+    sample_batch_size: int = 64
+    ddim_steps: int = 50
+
+
+
+@dataclass
+class EvalConfig:
+    reconstruction: ReconstructionEvalConfig
+    fid: FIDEvalConfig
+
+
+
+
+# ============================================================
+# 2. Base Evaluator
+# ============================================================
+
+class Evaluator:
     """
-    Evaluate VAE reconstruction quality over the full dataloader.
+    Base evaluator interface.
 
-    Returns:
-        reconstruction mse (averaged over every batch in dataloader)
-        originals, reconstructions (first num_images, for visualization only)
+    Every evaluator must implement:
+        evaluate()
     """
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    was_training = model.training
-    model.eval()
+    def __init__(self, cfg, device):
 
-    total_loss = 0
-    count = 0
-    originals = []
-    reconstructions = []
-
-    try:
-        for batch in dataloader:
-            images = extract_images(batch).to(device, non_blocking=True)
-
-            out = model(images)
-            recon = out["recon"]
-
-            loss = torch.mean((images - recon) ** 2)
-            total_loss += loss.item()
-            count += 1
-
-            if len(originals) < num_images:
-                remaining = num_images - len(originals)
-                originals.append(images[:remaining].cpu())
-                reconstructions.append(recon[:remaining].cpu())
-    finally:
-        model.train(was_training)
-
-    originals = torch.cat(originals, dim=0)[:num_images]
-    reconstructions = torch.cat(reconstructions, dim=0)[:num_images]
-
-    return {
-        "reconstruction_mse": total_loss / count,
-        "originals": originals,
-        "reconstructions": reconstructions,
-    }
+        self.cfg = cfg
+        self.device = device
 
 
-def visualize_reconstruction(originals, reconstructions, save_path=None):
-    comparison = torch.cat([originals, reconstructions], dim=0)
+
+    def evaluate(self):
+
+        raise NotImplementedError(
+            "Evaluator must implement evaluate()"
+        )
+
+
+
+
+
+# ============================================================
+# 3. Reconstruction Evaluator
+# ============================================================
+
+class ReconstructionEvaluator(Evaluator):
+
+    def __init__(
+        self,
+        cfg,
+        model,
+        dataloader,
+        device,
+    ):
+
+        super().__init__(
+            cfg,
+            device
+        )
+
+        self.model = model
+        self.dataloader = dataloader
+
+
+
+    @torch.no_grad()
+    def evaluate(self):
+
+        was_training = self.model.training
+
+        self.model.eval()
+
+
+        total_loss = 0.0
+        count = 0
+
+
+        originals = []
+        reconstructions = []
+
+
+        try:
+
+            for batch in self.dataloader:
+
+
+                images = extract_images(batch)
+
+
+                images = images.to(
+                    self.device,
+                    non_blocking=True
+                )
+
+
+                output = self.model(images)
+
+
+                recon = output["recon"]
+
+
+                mse = torch.mean(
+                    (images - recon) ** 2
+                )
+
+
+                total_loss += mse.item()
+
+                count += 1
+
+
+
+                # Store images for visualization
+
+                if len(originals) < self.cfg.num_images:
+
+
+                    remaining = (
+                        self.cfg.num_images
+                        -
+                        len(originals)
+                    )
+
+
+                    originals.append(
+                        images[:remaining]
+                        .cpu()
+                    )
+
+
+                    reconstructions.append(
+                        recon[:remaining]
+                        .cpu()
+                    )
+
+
+
+        finally:
+
+            self.model.train(
+                was_training
+            )
+
+
+
+        originals = torch.cat(
+            originals,
+            dim=0
+        )[:self.cfg.num_images]
+
+
+        reconstructions = torch.cat(
+            reconstructions,
+            dim=0
+        )[:self.cfg.num_images]
+
+
+
+        return {
+
+            "metrics":
+            {
+                "reconstruction_mse":
+                total_loss / count
+            },
+
+
+            "images":
+            {
+                "originals":
+                originals,
+
+                "reconstructions":
+                reconstructions,
+            }
+
+        }
+
+
+
+
+
+# ============================================================
+# 4. Reconstruction Visualization
+# ============================================================
+
+def visualize_reconstruction(
+    originals,
+    reconstructions,
+    save_path=None
+):
+
+    comparison = torch.cat(
+        [
+            originals,
+            reconstructions
+        ],
+        dim=0
+    )
+
 
     grid = vutils.make_grid(
         comparison,
         nrow=len(originals),
         normalize=True,
-        value_range=(-1, 1),
+        value_range=(-1,1),
     )
 
+
     if save_path is not None:
-        vutils.save_image(grid, save_path)
+
+        vutils.save_image(
+            grid,
+            save_path
+        )
+
     else:
-        plt.figure(figsize=(12, 4))
-        plt.imshow(grid.permute(1, 2, 0))
+
+        plt.figure(
+            figsize=(12,4)
+        )
+
+
+        plt.imshow(
+            grid.permute(1,2,0)
+        )
+
+
         plt.axis("off")
+
         plt.show()
 
-@torch.no_grad()
-def compute_fid(fid_metric, real_loader, model, vae, diffusion, cfg, device):
-    fid_metric.reset()
 
-    num_samples = cfg["eval"]["fid_num_samples"]  # e.g. 1000
 
-    for batch in real_loader:
-        images = extract_images(batch).to(device)
-        images = (images + 1) / 2  # [-1,1] -> [0,1] for torchmetrics
-        fid_metric.update(images, real=True)
 
-    generated = 0
-    while generated < num_samples:
-        batch_size = min(cfg["eval"]["sample_batch_size"], num_samples - generated)
-        y = ...  # per your conditioning setup
-        z0 = diffusion.ddim_sample(model, shape=(batch_size, ...), y=y,
-                                    steps=cfg["eval"]["ddim_steps"], device=device)
-        images = vae.decode(z0)
-        images = (images + 1) / 2
-        fid_metric.update(images, real=False)
-        generated += batch_size
 
-    return fid_metric.compute().item()
+# ============================================================
+# 5. FID Evaluator
+# ============================================================
+
+class FIDEvaluator(Evaluator):
+
+
+    def __init__(
+        self,
+        cfg,
+        fid_metric,
+        real_loader,
+        model,
+        vae,
+        diffusion,
+        device,
+    ):
+
+        super().__init__(
+            cfg,
+            device
+        )
+
+
+        self.metric = fid_metric
+
+        self.real_loader = real_loader
+
+        self.model = model
+
+        self.vae = vae
+
+        self.diffusion = diffusion
+
+
+
+
+    @torch.no_grad()
+    def evaluate(self):
+
+
+        self.metric.reset()
+
+
+
+        # ----------------------------------
+        # Real images
+        # ----------------------------------
+
+        for batch in self.real_loader:
+
+
+            images = extract_images(batch)
+
+
+            images = images.to(
+                self.device
+            )
+
+
+            # [-1,1] -> [0,1]
+
+            images = (
+                images + 1
+            ) / 2
+
+
+
+            self.metric.update(
+                images,
+                real=True
+            )
+
+
+
+
+        # ----------------------------------
+        # Generated images
+        # ----------------------------------
+
+        generated = 0
+
+
+
+        while generated < self.cfg.fid_num_samples:
+
+
+            batch_size = min(
+
+                self.cfg.sample_batch_size,
+
+                self.cfg.fid_num_samples
+                -
+                generated
+            )
+
+
+            # conditional label if needed
+
+            y = None
+
+
+
+            z = self.diffusion.ddim_sample(
+
+                self.model,
+
+                shape=(
+                    batch_size,
+                    # latent shape here
+                    # example:
+                    # 4,8,8
+                ),
+
+                y=y,
+
+                steps=self.cfg.ddim_steps,
+
+                device=self.device
+            )
+
+
+
+            images = self.vae.decode(z)
+
+
+
+            images = (
+                images + 1
+            ) / 2
+
+
+
+            self.metric.update(
+                images,
+                real=False
+            )
+
+
+
+            generated += batch_size
+
+
+
+
+        fid = self.metric.compute().item()
+
+
+
+        return {
+
+            "metrics":
+            {
+                "fid":
+                fid
+            }
+
+        }
+
+
+
+
+
+# ============================================================
+# 6. Evaluator Factory
+# ============================================================
+
+def build_evaluators(
+    cfg,
+    model,
+    vae,
+    diffusion,
+    loaders,
+    fid_metric,
+    device,
+):
+
+
+    evaluators = {}
+
+
+
+    if cfg.reconstruction.enabled:
+
+
+        evaluators["reconstruction"] = (
+
+            ReconstructionEvaluator(
+
+                cfg.reconstruction,
+
+                model,
+
+                loaders["test"],
+
+                device
+            )
+
+        )
+
+
+
+
+    if cfg.fid.enabled:
+
+
+        evaluators["fid"] = (
+
+            FIDEvaluator(
+
+                cfg.fid,
+
+                fid_metric,
+
+                loaders["test"],
+
+                model,
+
+                vae,
+
+                diffusion,
+
+                device
+
+            )
+
+        )
+
+
+
+    return evaluators
