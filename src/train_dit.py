@@ -4,7 +4,7 @@ import wandb
 import torchvision
 
 from data import build_dataloader, extract_images
-from model import build_model
+from model import build_model,build_vae
 from diffusion import build_diffusion
 from losses import build_loss
 
@@ -20,8 +20,6 @@ from utils import (
     move_to_device,
     InfiniteDataLoader,
 )
-
-from vae import build_vae
 
 
 # =====================================================
@@ -84,34 +82,39 @@ test_loader = build_dataloader(
 # Load VAE (Frozen)
 # =====================================================
 
-vae = build_vae(
-    cfg
+# Load VAE architecture config
+vae_cfg = load_config(
+    "configs/default.yaml",
+    "configs/vae.yaml"
 )
 
 
-checkpoint = torch.load(
+# Build VAE
+vae = build_vae(
+    vae_cfg
+)
+
+
+# Load pretrained weights
+vae_checkpoint = torch.load(
     cfg["vae"]["checkpoint"],
     map_location="cpu"
 )
 
 
 vae.load_state_dict(
-    checkpoint["model"]
+    vae_checkpoint["model"]
 )
 
 
+# Freeze VAE
 vae.eval()
 
-
 for p in vae.parameters():
-
     p.requires_grad = False
 
 
-
 vae.to(device)
-
-
 
 # =====================================================
 # Build Diffusion
