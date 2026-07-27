@@ -4,6 +4,7 @@ import yaml
 import os
 import numpy as np
 import torch
+import wandb
 
 
 # ============================================================================
@@ -163,8 +164,33 @@ def build_accelerator(cfg):
 
 
     return accelerator
+# ============================================================================
+#  BUILD
+# ============================================================================
 
 
+def build_logger(cfg, accelerator):
+    """
+    Initialize experiment logger (Weights & Biases).
+
+    Only the main process creates a logger.
+    """
+
+    if not accelerator.is_main_process:
+        return
+
+    project = f"elt-{cfg['model']['name']}"
+
+    run_name = (
+        f"{cfg['model']['name']}:"
+        f"{cfg['model']['variant']}"
+    )
+
+    wandb.init(
+        project=project,
+        name=run_name,
+        config=cfg,
+    )
 
 # ============================================================================
 # Optimizer
