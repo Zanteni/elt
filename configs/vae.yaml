@@ -1,15 +1,18 @@
 model:
   name: vae
-  patch_size: 4
-  in_channels: 3
-  d_model: 256
-  n_heads: 8
-  depth: 6
-  latent_dim: 4
-  attention_type: rope
-  mlp_ratio: 4.0
-  dropout: 0.0
-  bias: true
+  variant: B
+
+  vae:
+    patch_size: 4
+    in_channels: 3
+
+    latent_dim: 4
+
+    attention_type: rope
+
+    mlp_ratio: 4.0
+    dropout: 0.0
+    bias: true
 
 loss:
   beta: 1.0e-6
@@ -21,3 +24,13 @@ train:
 
 eval:
   recon_every: 1000
+
+  reconstruction:
+    enabled: true
+    num_images: 8
+
+  fid:
+    enabled: false
+    fid_num_samples: 1000
+    sample_batch_size: 64
+    ddim_steps: 50
