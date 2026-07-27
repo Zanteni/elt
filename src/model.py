@@ -690,9 +690,33 @@ class DiTConfig:
 
 def build_dit(cfg):
 
+    variant = cfg["model"]["variant"]
+
+    if variant not in DIT_CONFIGS:
+        raise ValueError(
+            f"Unknown DiT variant {variant}. "
+            f"Available: {list(DIT_CONFIGS.keys())}"
+        )
+
+    variant_cfg = DIT_CONFIGS[variant]
+
     dit_cfg = DiTConfig(
-        **cfg["model"]["dit"]
+        latent_dim=cfg["model"]["dit"]["latent_dim"],
+
+        hidden_size=variant_cfg["hidden_size"],
+        depth=variant_cfg["depth"],
+        num_heads=variant_cfg["num_heads"],
+
+        mlp_ratio=cfg["model"]["dit"]["mlp_ratio"],
+
+        grid_h=cfg["model"]["dit"]["grid_h"],
+        grid_w=cfg["model"]["dit"]["grid_w"],
+
+        num_classes=cfg["model"]["dit"]["num_classes"],
+        cfg_dropout=cfg["model"]["dit"]["cfg_dropout"],
+        dropout=cfg["model"]["dit"]["dropout"],
     )
+
 
     attn_cfg = AttentionConfig(
         d_model=dit_cfg.hidden_size,
@@ -704,13 +728,13 @@ def build_dit(cfg):
         grid_w=dit_cfg.grid_w,
     )
 
+
     return DiT(
         dit_cfg,
         attn_cfg,
         num_timesteps=cfg["diffusion"]["timestep"],
         learn_sigma=cfg["diffusion"]["learn_sigma"],
     )
-
 # ============================================================
 # Components -- signatures only, fill in forward() one at a time
 # ============================================================
@@ -878,6 +902,95 @@ class DiT(nn.Module):
             return eps, v
 
         return x
+# ============================================================
+# DiT Model Variants
+# ============================================================
+
+DIT_CONFIGS = {
+
+    # --------------------------------------------------------
+    # Small models (debugging / experiments)
+    # --------------------------------------------------------
+
+    "DiT-Tiny": {
+        "hidden_size": 192,
+        "depth": 6,
+        "num_heads": 3,
+    },
+
+    "DiT-S": {
+        "hidden_size": 384,
+        "depth": 12,
+        "num_heads": 6,
+    },
+
+
+    # --------------------------------------------------------
+    # Original DiT paper scale
+    # --------------------------------------------------------
+
+    "DiT-B": {
+        "hidden_size": 768,
+        "depth": 12,
+        "num_heads": 12,
+    },
+
+    "DiT-L": {
+        "hidden_size": 1024,
+        "depth": 24,
+        "num_heads": 16,
+    },
+
+    "DiT-XL": {
+        "hidden_size": 1152,
+        "depth": 28,
+        "num_heads": 16,
+    },
+
+
+    # --------------------------------------------------------
+    # Large research scale
+    # --------------------------------------------------------
+
+    "DiT-XXL": {
+        "hidden_size": 1536,
+        "depth": 48,
+        "num_heads": 24,
+    },
+
+
+    "DiT-H": {
+        "hidden_size": 1792,
+        "depth": 48,
+        "num_heads": 28,
+    },
+
+
+    "DiT-G": {
+        "hidden_size": 2048,
+        "depth": 48,
+        "num_heads": 32,
+    },
+
+
+    # --------------------------------------------------------
+    # Extreme scale (LLM-like)
+    # --------------------------------------------------------
+
+    "DiT-3B": {
+        "hidden_size": 2560,
+        "depth": 48,
+        "num_heads": 40,
+    },
+
+
+    "DiT-7B": {
+        "hidden_size": 4096,
+        "depth": 32,
+        "num_heads": 32,
+    },
+
+}
 # ---------------------------------------------------------------------------
 MODEL_BUILDERS = {
     "vae": build_vae,
