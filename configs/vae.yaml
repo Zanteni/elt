@@ -3,7 +3,7 @@ model:
   variant: L
 
   vae:
-    patch_size: 8
+    patch_size: 4
     in_channels: 3
 
     latent_dim: 4
@@ -32,5 +32,5 @@ eval:
   fid:
     enabled: True
     fid_num_samples: 1000
-    sample_batch_size: 128
+    sample_batch_size: 64
     ddim_steps: 50
