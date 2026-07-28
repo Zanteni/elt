@@ -46,7 +46,7 @@ train:
 
 
   # Performance
-  use_compile: false
+  use_compile: true
 
   benchmark: true
 
