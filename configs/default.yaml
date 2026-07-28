@@ -38,7 +38,7 @@ optimizer:
 train:
 
   # Total optimization steps
-  total_steps: 50000
+  total_steps: 100000
 
 
   # Precision
