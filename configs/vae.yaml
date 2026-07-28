@@ -1,9 +1,9 @@
 model:
   name: vae
-  variant: B
+  variant: L
 
   vae:
-    patch_size: 4
+    patch_size: 8
     in_channels: 3
 
     latent_dim: 4
@@ -30,7 +30,7 @@ eval:
     num_images: 8
 
   fid:
-    enabled: false
+    enabled: True
     fid_num_samples: 1000
-    sample_batch_size: 64
+    sample_batch_size: 128
     ddim_steps: 50
