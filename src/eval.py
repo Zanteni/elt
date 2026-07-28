@@ -32,6 +32,8 @@ class FIDEvalConfig:
     fid_num_samples: int = 1000
     sample_batch_size: int = 64
     ddim_steps: int = 50
+    guidance_scale: float = 1.0
+    eta: float = 0.0
 
 
 # ------------------------------------------------------------
@@ -140,7 +142,6 @@ class ReconstructionEvaluator(Evaluator):
             cfg,
             device
         )
-
         self.model = model
         self.dataloader = dataloader
 
@@ -298,102 +299,107 @@ class FIDEvaluator(Evaluator):
 
     @torch.no_grad()
     def evaluate(self):
-
-
-        self.metric.reset()
-
-
-
-        # ----------------------------------
-        # Real images
-        # ----------------------------------
-
-        for batch in self.real_loader:
-
-
-            images = extract_images(batch)
-
-
-            images = images.to(
-                self.device
-            )
-
-
-            # [-1,1] -> [0,1]
-
-            images = (
-                images + 1
-            ) / 2
+        was_training = self.model.training
+        self.model.eval()
+        try:
+            self.metric.reset()
 
 
 
-            self.metric.update(
-                images,
-                real=True
-            )
+            # ----------------------------------
+            # Real images
+            # ----------------------------------
+
+            for batch in self.real_loader:
+
+
+                images = extract_images(batch)
+
+
+                images = images.to(
+                    self.device
+                )
+
+
+                # [-1,1] -> [0,1]
+
+                images = (
+                    images + 1
+                ) / 2
 
 
 
-
-        # ----------------------------------
-        # Generated images
-        # ----------------------------------
-
-        generated = 0
-
-
-
-        while generated < self.cfg.fid_num_samples:
-
-
-            batch_size = min(
-
-                self.cfg.sample_batch_size,
-
-                self.cfg.fid_num_samples
-                -
-                generated
-            )
-
-
-            # conditional label if needed
-
-            y = None
-
-
-
-            z = self.diffusion.sample(
-                self.model,
-                shape=(batch_size, self.model.cfg.grid_h * self.model.cfg.grid_w, self.model.in_channels),
-                y=y,
-                sampler="ddim",
-                num_steps=self.cfg.ddim_steps,
-                device=self.device,
-            )
-
-            images = self.vae.decode(z)
-
-
-
-            images = (
-                images + 1
-            ) / 2
-
-
-
-            self.metric.update(
-                images,
-                real=False
-            )
-
-
-
-            generated += batch_size
+                self.metric.update(
+                    images,
+                    real=True
+                )
 
 
 
 
-        fid = self.metric.compute().item()
+            # ----------------------------------
+            # Generated images
+            # ----------------------------------
+
+            generated = 0
+
+
+
+            while generated < self.cfg.fid_num_samples:
+
+
+                batch_size = min(
+
+                    self.cfg.sample_batch_size,
+
+                    self.cfg.fid_num_samples
+                    -
+                    generated
+                )
+
+
+                # conditional label if needed
+
+                y = None
+
+
+
+                z = self.diffusion.sample(
+                    self.model,
+                    shape=(batch_size, self.model.cfg.grid_h * self.model.cfg.grid_w, self.model.in_channels),
+                    y=y,
+                    sampler="ddim",
+                    num_steps=self.cfg.ddim_steps,
+                    guidance_scale=self.cfg.guidance_scale,
+                    eta=self.cfg.eta,
+                    device=self.device,
+                )
+
+                images = self.vae.decode(z)
+
+
+
+                images = (
+                    images + 1
+                ) / 2
+
+
+
+                self.metric.update(
+                    images,
+                    real=False
+                )
+
+
+
+                generated += batch_size
+
+
+
+
+            fid = self.metric.compute().item()
+        finally:
+            self.model.train(was_training)
 
 
 
