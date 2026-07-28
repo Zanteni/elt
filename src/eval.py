@@ -580,11 +580,10 @@ def build_elt_evaluators(
 def build_evaluators(
     cfg,
     model,
-    vae,
-    diffusion,
     loaders,
     fid_metric,
     device,
+    **kwargs
 ):
 
     model_name = cfg["model"]["name"]
