@@ -9,18 +9,21 @@ import matplotlib.pyplot as plt
 from dataclasses import dataclass
 
 from data import extract_images
-
-
-
 # ============================================================
 # 1. Evaluation Configs
 # ============================================================
+
+from dataclasses import dataclass
+
+
+# ------------------------------------------------------------
+# Shared Evaluation Configs
+# ------------------------------------------------------------
 
 @dataclass
 class ReconstructionEvalConfig:
     enabled: bool = True
     num_images: int = 8
-
 
 
 @dataclass
@@ -31,44 +34,94 @@ class FIDEvalConfig:
     ddim_steps: int = 50
 
 
+# ------------------------------------------------------------
+# VAE Evaluation Config
+# ------------------------------------------------------------
 
 @dataclass
-class EvalConfig:
+class VAEEvalConfig:
     reconstruction: ReconstructionEvalConfig
     fid: FIDEvalConfig
 
 
+# ------------------------------------------------------------
+# DiT Evaluation Config
+# ------------------------------------------------------------
+
+@dataclass
+class DiTEvalConfig:
+    """
+    Placeholder.
+
+    Example later:
+
+        fid: FIDEvalConfig
+        sampling: SamplingEvalConfig
+    """
+    pass
 
 
+# ------------------------------------------------------------
+# ELT Evaluation Config
+# ------------------------------------------------------------
+
+@dataclass
+class ELTEvalConfig:
+    """
+    Placeholder.
+
+    Example later:
+
+        fid: FIDEvalConfig
+        refinement: RefinementEvalConfig
+        video: VideoEvalConfig
+    """
+    pass
 # ============================================================
 # 2. Base Evaluator
 # ============================================================
 
 class Evaluator:
     """
-    Base evaluator interface.
+    Base class for every evaluator.
+
+    Every evaluator owns:
+        - a configuration
+        - a device
 
     Every evaluator must implement:
         evaluate()
     """
 
-    def __init__(self, cfg, device):
+    def __init__(
+        self,
+        cfg,
+        device,
+    ):
 
         self.cfg = cfg
         self.device = device
 
 
-
+    @torch.no_grad()
     def evaluate(self):
 
+        """
+        Returns
+        -------
+        dict
+
+        Example
+
+        {
+            "metrics": {...},
+            "images": {...}
+        }
+        """
+
         raise NotImplementedError(
-            "Evaluator must implement evaluate()"
+            f"{self.__class__.__name__} must implement evaluate()."
         )
-
-
-
-
-
 # ============================================================
 # 3. Reconstruction Evaluator
 # ============================================================
@@ -424,11 +477,104 @@ class FIDEvaluator(Evaluator):
         }
 
 
+# ============================================================
+# VAE Evaluator Builder
+# ============================================================
 
+def build_vae_evaluators(
+    cfg,
+    model,
+    loaders,
+    fid_metric,
+    device,
+):
+
+    evaluators = {}
+
+    # --------------------------------------------------------
+    # Reconstruction
+    # --------------------------------------------------------
+
+    if cfg.reconstruction.enabled:
+
+        evaluators["reconstruction"] = ReconstructionEvaluator(
+
+            cfg=cfg.reconstruction,
+
+            model=model,
+
+            dataloader=loaders["test"],
+
+            device=device,
+
+        )
+
+    # --------------------------------------------------------
+    # FID
+    # --------------------------------------------------------
+
+    if cfg.fid.enabled:
+
+        evaluators["fid"] = FIDEvaluator(
+
+            cfg=cfg.fid,
+
+            fid_metric=fid_metric,
+
+            real_loader=loaders["test"],
+
+            model=model,
+
+            vae=None,
+
+            diffusion=None,
+
+            device=device,
+
+        )
+
+    return evaluators
 
 
 # ============================================================
-# 6. Evaluator Factory
+# DiT Evaluator Builder
+# ============================================================
+
+def build_dit_evaluators(
+    cfg,
+    model,
+    vae,
+    diffusion,
+    loaders,
+    fid_metric,
+    device,
+):
+
+    raise NotImplementedError(
+        "DiT evaluator builder not implemented."
+    )
+
+
+# ============================================================
+# ELT Evaluator Builder
+# ============================================================
+
+def build_elt_evaluators(
+    cfg,
+    model,
+    vae,
+    diffusion,
+    loaders,
+    fid_metric,
+    device,
+):
+
+    raise NotImplementedError(
+        "ELT evaluator builder not implemented."
+    )
+
+# ============================================================
+# Evaluator Factory
 # ============================================================
 
 def build_evaluators(
@@ -441,57 +587,114 @@ def build_evaluators(
     device,
 ):
 
+    model_name = cfg["model"]["name"]
 
-    evaluators = {}
+    # --------------------------------------------------------
+    # VAE
+    # --------------------------------------------------------
 
+    if model_name == "vae":
 
+        eval_cfg = VAEEvalConfig(
 
-    if cfg.reconstruction.enabled:
+            reconstruction=ReconstructionEvalConfig(
+                **cfg["eval"]["reconstruction"]
+            ),
 
-
-        evaluators["reconstruction"] = (
-
-            ReconstructionEvaluator(
-
-                cfg.reconstruction,
-
-                model,
-
-                loaders["test"],
-
-                device
-            )
+            fid=FIDEvalConfig(
+                **cfg["eval"]["fid"]
+            ),
 
         )
 
+        return build_vae_evaluators(
 
+            cfg=eval_cfg,
 
+            model=model,
 
-    if cfg.fid.enabled:
+            loaders=loaders,
 
+            fid_metric=fid_metric,
 
-        evaluators["fid"] = (
-
-            FIDEvaluator(
-
-                cfg.fid,
-
-                fid_metric,
-
-                loaders["test"],
-
-                model,
-
-                vae,
-
-                diffusion,
-
-                device
-
-            )
+            device=device,
 
         )
 
+    # --------------------------------------------------------
+    # DiT
+    # --------------------------------------------------------
 
+    elif model_name == "dit":
 
-    return evaluators
+        # later
+        raise NotImplementedError(
+            "DiT evaluator builder not implemented."
+        )
+
+    # --------------------------------------------------------
+    # ELT
+    # --------------------------------------------------------
+
+    elif model_name == "elt":
+
+        # later
+        raise NotImplementedError(
+            "ELT evaluator builder not implemented."
+        )
+
+    # --------------------------------------------------------
+    # Unknown
+    # --------------------------------------------------------
+
+    else:
+
+        raise ValueError(
+            f"Unknown model '{model_name}'."
+        )
+# --------------------------------------------------------
+# Utilities
+# --------------------------------------------------------
+
+def visualize_reconstruction(
+    originals,
+    reconstructions,
+    save_path=None,
+    show=False,
+):
+
+    comparison = torch.cat(
+        [
+            originals,
+            reconstructions,
+        ],
+        dim=0,
+    )
+
+    grid = vutils.make_grid(
+        comparison,
+        nrow=len(originals),
+        normalize=True,
+        value_range=(-1, 1),
+    )
+
+    if save_path is not None:
+
+        vutils.save_image(
+            grid,
+            save_path,
+        )
+
+    if show:
+
+        plt.figure(figsize=(12, 4))
+
+        plt.imshow(
+            grid.permute(1, 2, 0)
+        )
+
+        plt.axis("off")
+
+        plt.show()
+
+    return grid
