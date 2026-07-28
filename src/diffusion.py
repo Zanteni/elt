@@ -264,14 +264,15 @@ class GaussianDiffusion(nn.Module):
             # CFG blending happens once, here -- both samplers below just
             # consume the resulting eps, never call the model themselves.
             if guidance_scale != 1.0:
-                eps_cond = model(x, t_batch, y)
-                eps_uncond = model(x, t_batch, None)
+                eps_cond, v = self._split_output(model(x, t_batch, y))
+
+                eps_uncond, _ = self._split_output(model(x, t_batch, None))
                 eps = eps_uncond + guidance_scale * (eps_cond - eps_uncond)
             else:
-                eps = model(x, t_batch, y)
+                eps, v = self._split_output(model(x, t_batch, y))
 
             if sampler == "ddpm":
-                x = self.ddpm_step(x, t_batch, eps)
+                x = self.ddpm_step(x, t_batch, eps,v)
             elif sampler == "ddim":
                 if i == len(timesteps) - 1:
                     t_prev = torch.zeros_like(t_batch)
@@ -280,6 +281,8 @@ class GaussianDiffusion(nn.Module):
                 x = self.ddim_step(x, t_batch, t_prev, eps, eta=eta)
 
         return x
+    def _split_output(self,out):
+        return out if isinstance(out, tuple) else (out, None)
 
 
 # ============================================================================
