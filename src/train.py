@@ -21,7 +21,7 @@ from utils import (
     InfiniteDataLoader,
 )
 
-from eval import build_evaluators
+from eval import build_evaluators,visualize_reconstruction
 
 
 # =====================================================
@@ -368,20 +368,7 @@ for step in range(
 
             reconstructions = result["images"]["reconstructions"]
 
-            comparison = torch.cat(
-                [
-                    originals,
-                    reconstructions
-                ],
-                dim=0
-            )
-
-            grid = torchvision.utils.make_grid(
-                comparison,
-                nrow=len(originals),
-                normalize=True,
-                value_range=(-1, 1)
-            )
+            grid = visualize_reconstruction(originals,reconstructions)
 
             wandb.log(
                 {
