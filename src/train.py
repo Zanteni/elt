@@ -140,17 +140,14 @@ ema = EMA(
 # =====================================================
 
 evaluators = build_evaluators(
-    cfg["eval"],
+    cfg,
     model=raw_model,
-    vae=None,
-    diffusion=None,
     loaders={
         "test": test_loader
     },
     fid_metric=None,
     device=device
 )
-
 
 # =====================================================
 # Resume
