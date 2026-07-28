@@ -19,9 +19,6 @@ loss:
   lpips_weight: 0.1
   reconstruction: mse
 
-train:
-  total_steps: 50000
-
 eval:
   recon_every: 1000
 
