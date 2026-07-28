@@ -259,64 +259,6 @@ class ReconstructionEvaluator(Evaluator):
 
         }
 
-
-
-
-
-# ============================================================
-# 4. Reconstruction Visualization
-# ============================================================
-
-def visualize_reconstruction(
-    originals,
-    reconstructions,
-    save_path=None
-):
-
-    comparison = torch.cat(
-        [
-            originals,
-            reconstructions
-        ],
-        dim=0
-    )
-
-
-    grid = vutils.make_grid(
-        comparison,
-        nrow=len(originals),
-        normalize=True,
-        value_range=(-1,1),
-    )
-
-
-    if save_path is not None:
-
-        vutils.save_image(
-            grid,
-            save_path
-        )
-
-    else:
-
-        plt.figure(
-            figsize=(12,4)
-        )
-
-
-        plt.imshow(
-            grid.permute(1,2,0)
-        )
-
-
-        plt.axis("off")
-
-        plt.show()
-
-
-
-
-
 # ============================================================
 # 5. FID Evaluator
 # ============================================================
@@ -420,25 +362,14 @@ class FIDEvaluator(Evaluator):
 
 
 
-            z = self.diffusion.ddim_sample(
-
+            z = self.diffusion.sample(
                 self.model,
-
-                shape=(
-                    batch_size,
-                    # latent shape here
-                    # example:
-                    # 4,8,8
-                ),
-
+                shape=(batch_size, self.model.cfg.grid_h * self.model.cfg.grid_w, self.model.in_channels),
                 y=y,
-
-                steps=self.cfg.ddim_steps,
-
-                device=self.device
+                sampler="ddim",
+                num_steps=self.cfg.ddim_steps,
+                device=self.device,
             )
-
-
 
             images = self.vae.decode(z)
 
