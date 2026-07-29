@@ -379,7 +379,7 @@ def build_vae_trainer(cfg):
 
     return VAETrainer(
         cfg, model, optimizer, criterion, train_loader, accelerator, device,
-        checkpoint_dir, scheduler=scheduler, ema=ema, evaluators=evaluators,
+        checkpoint_dir, scheduler=scheduler, ema=ema,logger=logger, evaluators=evaluators,
     )
 
 TRAINER_BUILDERS = {
