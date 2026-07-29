@@ -13,7 +13,7 @@ data:
 
   image_size: 32
 
-  batch_size: 128
+  batch_size: 256
 
   num_workers: 4
 
@@ -27,7 +27,7 @@ optimizer:
 
   name: adamw
 
-  lr: 3.0e-4
+  lr: 1.0e-4
 
   weight_decay: 0.0
 

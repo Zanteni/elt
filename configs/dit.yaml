@@ -2,7 +2,7 @@ model:
 
   name: dit
 
-  variant: DiT-Tiny
+  variant: DiT-S
 
 
   dit:
@@ -18,7 +18,7 @@ model:
 
     cfg_dropout: 0.0
 
-    dropout: 0.1
+    dropout: 0.0
 
 
   attention:
