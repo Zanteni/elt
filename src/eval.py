@@ -452,10 +452,29 @@ def build_dit_evaluators(
     device,
 ):
 
-    raise NotImplementedError(
-        "DiT evaluator builder not implemented."
-    )
+    evaluators = {}
 
+    if cfg.fid.enabled:
+
+        evaluators["fid"] = FIDEvaluator(
+
+            cfg=cfg.fid,
+
+            fid_metric=fid_metric,
+
+            real_loader=loaders["test"],
+
+            model=model,
+
+            vae=vae,
+
+            diffusion=diffusion,
+
+            device=device,
+
+        )
+
+    return evaluators
 
 # ============================================================
 # ELT Evaluator Builder
