@@ -13,6 +13,7 @@ from utils import (maybe_resume,
                    )
 from eval import extract_images,visualize_reconstruction,build_evaluators
 from model import build_model
+from  diffusion  import  build_diffusion
 from losses import build_loss
 from  data import build_dataloader
 import  torch
@@ -734,7 +735,7 @@ def build_dit_trainer(cfg):
     # --------------------------------
 
     vae = build_vae_from_checkpoint(
-        cfg["model"]["vae_checkpoint"],
+        cfg["vae"]["vae_checkpoint"],
         device=device,
         freeze=True,
     )
