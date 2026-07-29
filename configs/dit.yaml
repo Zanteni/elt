@@ -29,7 +29,7 @@ model:
 
 vae:
 
-  checkpoint: checkpoints/vae_final.pt
+  checkpoint: kaggle/input/datasets/zanteniwajdi/my-vae-checkpoint
 
 # ============================================================
 # Evaluation
