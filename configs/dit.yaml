@@ -51,7 +51,7 @@ diffusion:
 
   schedule: cosine
 
-  timestep: 1000
+  timestep: 200
 
   beta_start: 1.0e-4
 
