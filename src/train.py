@@ -375,7 +375,7 @@ def build_vae_trainer(cfg):
     scheduler = build_scheduler(optimizer, cfg)  
     ema = EMA(model, decay=float(cfg["train"]["ema_decay"]))
 
-    evaluators = build_evaluators(cfg, model, model, loaders,device)  # <- needs loaders/fid_metric, see below
+    evaluators = build_evaluators(cfg, model, loaders,device)  # <- needs loaders/fid_metric, see below
 
     return VAETrainer(
         cfg, model, optimizer, criterion, train_loader, accelerator, device,
