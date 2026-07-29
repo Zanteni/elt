@@ -5,7 +5,7 @@ import os
 import numpy as np
 import torch
 import wandb
-
+import math
 
 # ============================================================================
 # Configuration
@@ -195,19 +195,14 @@ def build_logger(cfg, accelerator):
 # ============================================================================
 # Optimizer
 # ============================================================================
-
-def build_optimizer(model, cfg):
-
-    optim_cfg = cfg["optimizer"]
-
-
-    params = build_param_groups(
-        model,
-        optim_cfg["weight_decay"]
-    )
+# ============================================================
+# Optimizer Builders
+# ============================================================
 
 
-    optimizer = torch.optim.AdamW(
+def build_adamw(params, optim_cfg):
+
+    return torch.optim.AdamW(
 
         params,
 
@@ -218,7 +213,7 @@ def build_optimizer(model, cfg):
         betas=tuple(
             optim_cfg.get(
                 "betas",
-                (0.9,0.999)
+                (0.9, 0.999)
             )
         ),
 
@@ -229,14 +224,80 @@ def build_optimizer(model, cfg):
             )
         ),
 
-        fused=torch.cuda.is_available()
+        fused=optim_cfg.get(
+            "fused",
+            torch.cuda.is_available()
+        ),
 
+    )
+
+OPTIMIZER_BUILDERS = {
+
+    "adamw": build_adamw,
+
+}
+
+def build_optimizer(model, cfg):
+
+    optim_cfg = cfg["optimizer"]
+
+
+    name = optim_cfg["name"]
+
+
+    if name not in OPTIMIZER_BUILDERS:
+
+        raise ValueError(
+            f"Unknown optimizer '{name}', "
+            f"expected one of {list(OPTIMIZER_BUILDERS)}"
+        )
+
+
+    params = build_param_groups(
+        model,
+        optim_cfg["weight_decay"]
+    )
+
+
+    optimizer = OPTIMIZER_BUILDERS[name](
+        params,
+        optim_cfg
     )
 
 
     return optimizer
+# ============================================================================
+# Scheduler
+# ============================================================================
+
+def build_constant_schedule(optimizer, cfg):
+    return None  # VAETrainer already guards scheduler=None correctly -- no fake no-op object needed
+
+def build_linear_warmup_cosine_schedule(optimizer, cfg):
+    warmup_steps = cfg["scheduler"].get("warmup_steps", 0)
+    total_steps = cfg["train"]["total_steps"]  
+    min_lr_ratio = cfg["scheduler"].get("min_lr_ratio", 0.0)
+
+    def lr_lambda(step):
+        if step < warmup_steps:
+            return step / max(1, warmup_steps)
+        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+        cosine_decay = 0.5 * (1 + math.cos(math.pi * progress))
+        return min_lr_ratio + (1 - min_lr_ratio) * cosine_decay
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
+SCHEDULER_BUILDERS = {
+    "constant": build_constant_schedule,
+    "linear_warmup_cosine": build_linear_warmup_cosine_schedule,
+}
+
+def build_scheduler(optimizer, cfg):
+    name = cfg["scheduler"]["name"]
+    if name not in SCHEDULER_BUILDERS:
+        raise ValueError(f"Unknown scheduler '{name}', expected one of {list(SCHEDULER_BUILDERS)}")
+    return SCHEDULER_BUILDERS[name](optimizer, cfg)
 
 # ============================================================================
 # Resume training
