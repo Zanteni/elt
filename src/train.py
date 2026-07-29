@@ -360,7 +360,7 @@ def build_vae_trainer(cfg):
     accelerator = build_accelerator(cfg)
 
     device = accelerator.device
-
+    logger = build_logger(cfg,accelerator)
     train_loader = build_dataloader(cfg["data"], split="train")
     test_loader = build_dataloader(cfg["data"],split="test")
 
