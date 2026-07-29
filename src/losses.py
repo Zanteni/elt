@@ -236,6 +236,10 @@ def build_loss(cfg):
         )
 
     elif cfg["model"]["name"] == "dit":
-        return DiffusionLoss(loss_type=cfg["loss"]["reconstruction"])
+        return DiffusionLoss(
+        loss_type=cfg["loss"].get(
+            "diffusion",
+            "mse"
+        ))
 
     raise ValueError(f"Unknown loss for {cfg['model']['name']}")
