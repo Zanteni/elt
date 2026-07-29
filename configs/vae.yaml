@@ -20,7 +20,7 @@ loss:
   reconstruction: mse
 
 eval:
-  recon_every: 1000
+  every: 1000
 
   reconstruction:
     enabled: true
