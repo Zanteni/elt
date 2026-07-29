@@ -6,6 +6,7 @@ from utils import (maybe_resume,
                    build_logger,
                    build_optimizer,
                    build_scheduler,
+                   load_config,
                    EMA
                    )
 from eval import extract_images,visualize_reconstruction,build_evaluators
@@ -393,3 +394,7 @@ def build_trainer(cfg):
     if name not in TRAINER_BUILDERS:
         raise ValueError(f"Unknown trainer type '{name}', expected one of {list(TRAINER_BUILDERS)}")
     return TRAINER_BUILDERS[name](cfg)
+
+cfg = load_config("configs/default.yaml", "configs/vae.yaml")
+trainer = build_trainer(cfg)
+trainer.train()
