@@ -66,3 +66,6 @@ diffusion:
 loss:
 
   diffusion: mse
+train:
+
+  resume: checkpoints/dit_95000.pt
