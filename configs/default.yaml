@@ -7,7 +7,7 @@ seed: 42
 
 data:
 
-  root: ./data
+  root: "/kaggle/input/datasets/ayush1220/cifar10/cifar10/train"
 
   dataset: imagefolder
 
