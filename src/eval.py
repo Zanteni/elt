@@ -13,9 +13,6 @@ from data import extract_images
 # 1. Evaluation Configs
 # ============================================================
 
-from dataclasses import dataclass
-
-
 # ------------------------------------------------------------
 # Shared Evaluation Configs
 # ------------------------------------------------------------
@@ -43,7 +40,6 @@ class FIDEvalConfig:
 @dataclass
 class VAEEvalConfig:
     reconstruction: ReconstructionEvalConfig
-    fid: FIDEvalConfig
 
 
 # ------------------------------------------------------------
@@ -52,15 +48,7 @@ class VAEEvalConfig:
 
 @dataclass
 class DiTEvalConfig:
-    """
-    Placeholder.
-
-    Example later:
-
-        fid: FIDEvalConfig
-        sampling: SamplingEvalConfig
-    """
-    pass
+    fid :FIDEvalConfig
 
 
 # ------------------------------------------------------------
@@ -375,7 +363,7 @@ class FIDEvaluator(Evaluator):
                     device=self.device,
                 )
 
-                images = self.vae.decode(z)
+                images = self.vae.decoder(z)
 
 
 
@@ -422,7 +410,6 @@ def build_vae_evaluators(
     cfg,
     model,
     loaders,
-    fid_metric,
     device,
 ):
 
@@ -446,29 +433,7 @@ def build_vae_evaluators(
 
         )
 
-    # --------------------------------------------------------
-    # FID
-    # --------------------------------------------------------
-
-    if cfg.fid.enabled:
-
-        evaluators["fid"] = FIDEvaluator(
-
-            cfg=cfg.fid,
-
-            fid_metric=fid_metric,
-
-            real_loader=loaders["test"],
-
-            model=model,
-
-            vae=None,
-
-            diffusion=None,
-
-            device=device,
-
-        )
+  
 
     return evaluators
 
@@ -514,63 +479,26 @@ def build_elt_evaluators(
 # Evaluator Factory
 # ============================================================
 
-def build_evaluators(
-    cfg,
-    model,
-    loaders,
-    fid_metric,
-    device,
-    **kwargs
-):
-
+def build_evaluators(cfg, model, loaders, device, **kwargs):
     model_name = cfg["model"]["name"]
 
-    # --------------------------------------------------------
-    # VAE
-    # --------------------------------------------------------
-
     if model_name == "vae":
-
         eval_cfg = VAEEvalConfig(
-
-            reconstruction=ReconstructionEvalConfig(
-                **cfg["eval"]["reconstruction"]
-            ),
-
-            fid=FIDEvalConfig(
-                **cfg["eval"]["fid"]
-            ),
-
+            reconstruction=ReconstructionEvalConfig(**cfg["eval"]["reconstruction"]),
         )
+        return build_vae_evaluators(cfg=eval_cfg, model=model, loaders=loaders, device=device)
 
-        return build_vae_evaluators(
-
+    if model_name == "dit":
+        eval_cfg = DiTEvalConfig(fid=FIDEvalConfig(**cfg["eval"]["fid"]))
+        return build_dit_evaluators(
             cfg=eval_cfg,
-
             model=model,
-
             loaders=loaders,
-
-            fid_metric=fid_metric,
-
+            fid_metric=kwargs["fid_metric"],  # bare index -- KeyError immediately if the DiT caller forgot it
+            vae=kwargs["vae"],
+            diffusion=kwargs["diffusion"],
             device=device,
-
         )
-
-    # --------------------------------------------------------
-    # DiT
-    # --------------------------------------------------------
-
-    elif model_name == "dit":
-
-        # later
-        raise NotImplementedError(
-            "DiT evaluator builder not implemented."
-        )
-
-    # --------------------------------------------------------
-    # ELT
-    # --------------------------------------------------------
 
     elif model_name == "elt":
 
@@ -578,11 +506,7 @@ def build_evaluators(
         raise NotImplementedError(
             "ELT evaluator builder not implemented."
         )
-
-    # --------------------------------------------------------
-    # Unknown
-    # --------------------------------------------------------
-
+    
     else:
 
         raise ValueError(
