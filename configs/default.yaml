@@ -25,9 +25,33 @@ data:
 
 optimizer:
 
+  name: adamw
+
   lr: 3.0e-4
 
   weight_decay: 0.0
+
+  betas:
+    - 0.9
+    - 0.999
+
+  eps: 1.0e-8
+
+  fused: true
+
+
+
+# ============================================================
+# Scheduler
+# ============================================================
+
+scheduler:
+
+  name: linear_warmup_cosine
+
+  warmup_steps: 5000
+
+  min_lr_ratio: 0.0
 
 
 
@@ -37,39 +61,24 @@ optimizer:
 
 train:
 
-  # Total optimization steps
   total_steps: 100000
 
-
-  # Precision
   mixed_precision: bf16
 
-
-  # Performance
   use_compile: true
 
   benchmark: true
 
   allow_tf32: true
 
-
-  # Stability
   grad_clip_norm: 1.0
 
-
-  # Logging
   log_every: 100
 
-
-  # Checkpoints
   ckpt_every: 5000
 
   checkpoints_dir: checkpoints
 
-
-  # EMA
   ema_decay: 0.9999
 
-
-  # Reproducibility
   deterministic: false
