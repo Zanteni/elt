@@ -29,7 +29,7 @@ model:
 
 vae:
 
-  checkpoint: /kaggle/input/my-vae-checkpoint/vae_final.pt
+  checkpoint: checkpoints/vae_final.pt
 
 # ============================================================
 # Evaluation
