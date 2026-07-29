@@ -9,7 +9,7 @@ data:
 
   root: ./data
 
-  dataset: cifar10
+  dataset: imagefolder
 
   image_size: 32
 
