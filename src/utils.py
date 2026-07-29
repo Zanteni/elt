@@ -629,11 +629,18 @@ class EMA:
 
             if param.requires_grad:
 
-                self.shadow[name].mul_(
+                shadow = self.shadow[name]
+
+                if shadow.device != param.device:
+                    shadow = shadow.to(param.device)
+                    self.shadow[name] = shadow
+
+
+                shadow.mul_(
                     self.decay
                 )
 
-                self.shadow[name].add_(
+                shadow.add_(
                     param.data,
                     alpha=1 - self.decay
                 )
