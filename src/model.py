@@ -614,6 +614,7 @@ class VAE(nn.Module):
     """Wraps VAEEncoder + reparameterize + VAEDecoder. attention_type set via config."""
     def __init__(self, config:VAEConfig):
         super().__init__()
+        self.cfg = config
         self.encoder = VAEEncoder(config)
         self.decoder = VAEDecoder(config)
 
@@ -679,42 +680,88 @@ VAE_CONFIGS = {
 # ---------------------------------------------------------------------------
 # Build VAE
 # ---------------------------------------------------------------------------
-
 def build_vae(cfg):
 
-    variant = cfg["model"]["variant"]
+    model_cfg = cfg["model"]
 
-    if variant not in VAE_CONFIGS:
-        raise ValueError(
-            f"Unknown VAE variant '{variant}'. "
-            f"Available: {list(VAE_CONFIGS.keys())}"
-        )
 
-    variant_cfg = VAE_CONFIGS[variant]
-    vae_cfg = cfg["model"]["vae"]
+    # ==========================================
+    # Resolved architecture
+    # checkpoint / explicit config
+    # ==========================================
 
-    model_cfg = VAEConfig(
+    if "d_model" in model_cfg:
 
+        vae_cfg = model_cfg
+
+        d_model = vae_cfg["d_model"]
+        depth = vae_cfg["depth"]
+        n_heads = vae_cfg["n_heads"]
+
+        patch_size = vae_cfg["patch_size"]
+        in_channels = vae_cfg["in_channels"]
+        latent_dim = vae_cfg["latent_dim"]
+
+        attention_type = vae_cfg["attention_type"]
+
+        mlp_ratio = vae_cfg.get("mlp_ratio", 4.0)
+        dropout = vae_cfg.get("dropout", 0.0)
+        bias = vae_cfg.get("bias", True)
+
+
+
+    # ==========================================
+    # Variant based training config
+    # ==========================================
+
+    else:
+
+        vae_cfg = model_cfg["vae"]
+
+        variant = model_cfg["variant"]
+
+        if variant not in VAE_CONFIGS:
+            raise ValueError(
+                f"Unknown VAE variant {variant}"
+            )
+
+        variant_cfg = VAE_CONFIGS[variant]
+
+        d_model = variant_cfg["d_model"]
+        depth = variant_cfg["depth"]
+        n_heads = variant_cfg["n_heads"]
+
+        patch_size = vae_cfg["patch_size"]
+        in_channels = vae_cfg["in_channels"]
+        latent_dim = vae_cfg["latent_dim"]
+
+        attention_type = vae_cfg["attention_type"]
+
+        mlp_ratio = vae_cfg.get("mlp_ratio", 4.0)
+        dropout = vae_cfg.get("dropout", 0.0)
+        bias = vae_cfg.get("bias", True)
+
+
+
+    config = VAEConfig(
         image_size=cfg["data"]["image_size"],
+        patch_size=patch_size,
+        in_channels=in_channels,
 
-        patch_size=vae_cfg["patch_size"],
-        in_channels=vae_cfg["in_channels"],
+        d_model=d_model,
+        depth=depth,
+        n_heads=n_heads,
 
-        d_model=variant_cfg["d_model"],
-        depth=variant_cfg["depth"],
-        n_heads=variant_cfg["n_heads"],
+        latent_dim=latent_dim,
+        attention_type=attention_type,
 
-        latent_dim=vae_cfg["latent_dim"],
-
-        attention_type=vae_cfg["attention_type"],
-
-        mlp_ratio=vae_cfg["mlp_ratio"],
-        dropout=vae_cfg["dropout"],
-        bias=vae_cfg["bias"],
+        mlp_ratio=mlp_ratio,
+        dropout=dropout,
+        bias=bias,
     )
 
-    return VAE(model_cfg)
 
+    return VAE(config)
 # ============================================================
 # DiT Block utilities and helpers
 # ============================================================
