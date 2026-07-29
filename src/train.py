@@ -99,6 +99,31 @@ class BaseTrainer:
 
     def save_final(self):
         raise NotImplementedError
+    
+    def _log_evaluation(self, step, name, result):
+
+        metrics = result.get("metrics", {})
+
+        if self.accelerator.is_main_process:
+
+            wandb.log(
+                {
+                    **{
+                        f"eval/{name}/{k}": v
+                        for k, v in metrics.items()
+                    },
+                    "step": step,
+                }
+            )
+
+            print(
+                f"eval step {step} | {name}: "
+                +
+                " ".join(
+                    f"{k}: {v:.5f}"
+                    for k, v in metrics.items()
+                )
+            )
 
 class VAETrainer(BaseTrainer):
     def __init__(self, cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler=None, ema=None, logger=None, evaluators=None):
@@ -248,34 +273,6 @@ class VAETrainer(BaseTrainer):
                 )
 
             self.raw_model.train()
-
-
-
-
-    def _log_evaluation(self,step,name,result):
-
-        log_dict = {"step": step}
-
-        for metric_name, value in result.get("metrics", {}).items():
-
-            log_dict[f"eval/{metric_name}"] = value
-
-        images = result.get("images", {})
-
-        if (
-            "originals" in images
-            and
-            "reconstructions" in images
-        ):
-
-            grid = visualize_reconstruction(
-                images["originals"],
-                images["reconstructions"],
-            )
-
-            log_dict["eval/reconstruction"] = wandb.Image(grid)
-
-        wandb.log(log_dict)
 
     def save_checkpoint(self, step):
 
