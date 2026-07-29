@@ -583,3 +583,16 @@ def visualize_reconstruction(
         plt.show()
 
     return grid
+
+def build_fid_metric(cfg, device):
+
+    from torchmetrics.image.fid import FrechetInceptionDistance
+
+    metric = FrechetInceptionDistance(
+        feature=2048,
+        normalize=True,
+    )
+
+    metric.to(device)
+
+    return metric
