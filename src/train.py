@@ -8,6 +8,7 @@ from utils import (maybe_resume,
                    build_scheduler,
                    load_config,
                    freeze_model,
+                   build_vae_from_checkpoint,
                    EMA
                    )
 from eval import extract_images,visualize_reconstruction,build_evaluators
@@ -781,7 +782,7 @@ def build_dit_trainer(cfg):
     # Evaluation
     # --------------------------------
 
-    evaluators = build_dit_evaluators(
+    evaluators = build_evaluators(
         cfg,
         model,
         vae,
