@@ -790,6 +790,33 @@ def build_trainer(cfg):
         raise ValueError(f"Unknown trainer type '{name}', expected one of {list(TRAINER_BUILDERS)}")
     return TRAINER_BUILDERS[name](cfg)
 
-cfg = load_config("configs/default.yaml", "configs/dit.yaml")
-trainer = build_trainer(cfg)
-trainer.train()
+if __name__ == "__main__":
+
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Train an ELT model."
+    )
+
+    parser.add_argument(
+        "stage_config",
+        nargs="?",
+        default="configs/vae.yaml",
+        help="Stage configuration (e.g. configs/vae.yaml, configs/dit.yaml)"
+    )
+
+    parser.add_argument(
+        "--default",
+        default="configs/default.yaml",
+        help="Base configuration file"
+    )
+
+    args = parser.parse_args()
+
+    cfg = load_config(
+        args.default,
+        args.stage_config,
+    )
+
+    trainer = build_trainer(cfg)
+    trainer.train()
