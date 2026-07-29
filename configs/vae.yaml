@@ -26,8 +26,3 @@ eval:
     enabled: true
     num_images: 8
 
-  fid:
-    enabled: True
-    fid_num_samples: 1000
-    sample_batch_size: 64
-    ddim_steps: 50
