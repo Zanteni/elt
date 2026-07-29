@@ -748,6 +748,7 @@ def build_dit_trainer(cfg):
 
 
     # evaluation dependency
+    fid_metric = None
     fid_metric = build_fid_metric(cfg,device)
 
 
