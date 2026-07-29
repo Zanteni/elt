@@ -486,8 +486,8 @@ def build_elt_evaluators(
     vae,
     diffusion,
     loaders,
-    fid_metric,
     device,
+    fid_metric=None,
 ):
 
     raise NotImplementedError(
@@ -508,12 +508,18 @@ def build_evaluators(cfg, model, loaders, device, **kwargs):
         return build_vae_evaluators(cfg=eval_cfg, model=model, loaders=loaders, device=device)
 
     if model_name == "dit":
-        eval_cfg = DiTEvalConfig(fid=FIDEvalConfig(**cfg["eval"]["fid"]))
+
+        eval_cfg = DiTEvalConfig(
+            fid=FIDEvalConfig(
+                **cfg["eval"]["fid"]
+            )
+        )
+
         return build_dit_evaluators(
             cfg=eval_cfg,
             model=model,
             loaders=loaders,
-            fid_metric=kwargs["fid_metric"],  # bare index -- KeyError immediately if the DiT caller forgot it
+            fid_metric=kwargs["fid_metric"],
             vae=kwargs["vae"],
             diffusion=kwargs["diffusion"],
             device=device,
