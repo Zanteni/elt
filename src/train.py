@@ -11,7 +11,7 @@ from utils import (maybe_resume,
                    build_vae_from_checkpoint,
                    EMA
                    )
-from eval import extract_images,visualize_reconstruction,build_evaluators,buid_f
+from eval import extract_images,visualize_reconstruction,build_evaluators,build_fid_metric
 from model import build_model
 from  diffusion  import  build_diffusion
 from losses import build_loss
