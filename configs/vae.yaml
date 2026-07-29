@@ -1,6 +1,6 @@
 model:
   name: vae
-  variant: XL
+  variant: B
 
   vae:
     patch_size: 4
