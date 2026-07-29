@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import wandb
 import math
-
+from  model  import build_model
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -836,3 +836,31 @@ class InfiniteDataLoader:
             return next(
                 self.iterator
             )
+
+def build_vae_from_checkpoint(
+    path,
+    device="cpu",
+    freeze=True
+):
+
+    checkpoint = torch.load(
+        path,
+        map_location=device
+    )
+
+    cfg = checkpoint["config"]
+
+    vae = build_model(cfg)
+
+    load_checkpoint(
+        path,
+        vae,
+        device=device
+    )
+
+    vae.eval()
+
+    if freeze:
+        freeze_model(vae)
+
+    return vae
