@@ -735,7 +735,7 @@ def build_dit_trainer(cfg):
     # --------------------------------
 
     vae = build_vae_from_checkpoint(
-        cfg["vae"]["vae_checkpoint"],
+        cfg["vae"]["checkpoint"],
         device=device,
         freeze=True,
     )
