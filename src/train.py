@@ -11,7 +11,7 @@ from utils import (maybe_resume,
                    build_vae_from_checkpoint,
                    EMA
                    )
-from eval import extract_images,visualize_reconstruction,build_evaluators
+from eval import extract_images,visualize_reconstruction,build_evaluators,buid_f
 from model import build_model
 from  diffusion  import  build_diffusion
 from losses import build_loss
@@ -686,7 +686,6 @@ class DiTTrainer(BaseTrainer):
 #=============
 # DIT FACTORY
 #==============
-
 def build_dit_trainer(cfg):
 
     set_seed(cfg["seed"])
@@ -697,16 +696,10 @@ def build_dit_trainer(cfg):
 
     device = accelerator.device
 
-    logger = build_logger(
-        cfg,
-        accelerator
-    )
+    logger = build_logger(cfg, accelerator)
 
 
-    # --------------------------------
-    # Data
-    # --------------------------------
-
+    # data
     train_loader = build_dataloader(
         cfg["data"],
         split="train"
@@ -723,16 +716,8 @@ def build_dit_trainer(cfg):
     }
 
 
-    # --------------------------------
-    # DiT model
-    # --------------------------------
-
+    # models
     model = build_model(cfg)
-
-
-    # --------------------------------
-    # VAE
-    # --------------------------------
 
     vae = build_vae_from_checkpoint(
         cfg["vae"]["checkpoint"],
@@ -740,27 +725,11 @@ def build_dit_trainer(cfg):
         freeze=True,
     )
 
-
-    # --------------------------------
-    # Diffusion
-    # --------------------------------
-
-    diffusion = build_diffusion(
-        cfg,
-        device=device
-    )
+    diffusion = build_diffusion(cfg)
 
 
-    # --------------------------------
-    # Loss
-    # --------------------------------
-
+    # training objects
     criterion = build_loss(cfg)
-
-
-    # --------------------------------
-    # Optimizer
-    # --------------------------------
 
     optimizer = build_optimizer(
         model,
@@ -772,24 +741,24 @@ def build_dit_trainer(cfg):
         cfg
     )
 
-
     ema = EMA(
         model,
         decay=float(cfg["train"]["ema_decay"])
     )
 
 
-    # --------------------------------
-    # Evaluation
-    # --------------------------------
+    # evaluation dependency
+    fid_metric = build_fid_metric(cfg)
+
 
     evaluators = build_evaluators(
         cfg,
         model,
-        vae,
-        diffusion,
         loaders,
-        device
+        device,
+        vae=vae,
+        diffusion=diffusion,
+        fid_metric=fid_metric,
     )
 
 
