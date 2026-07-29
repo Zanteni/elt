@@ -848,7 +848,7 @@ def build_vae_from_checkpoint(
         map_location=device
     )
 
-    cfg = checkpoint["vae"]["config"]
+    cfg = checkpoint["config"]
 
     vae = build_model(cfg)
 
