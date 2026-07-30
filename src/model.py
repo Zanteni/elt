@@ -11,6 +11,7 @@ from outside -- it's threaded internally to the backbone/blocks/attention.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import  math
 from dataclasses import dataclass, field, asdict
 from typing import Optional
@@ -267,34 +268,6 @@ def merge_heads(x: torch.Tensor) -> torch.Tensor:
     return x
 
 
-class QKVProjection(nn.Module):
-    def __init__(self, d_model: int):
-        super().__init__()
-        self.qkv = nn.Linear(in_features=d_model, out_features=3 * d_model)
-
-    def forward(self, x: torch.Tensor):
-        """x: (B, N, d_model) -> q, k, v each (B, N, d_model)"""
-        assert x.ndim == 3, f"Expected 3D tensor, got {x.ndim}."
-        qkv = self.qkv(x)
-        q, k, v = qkv.chunk(3, dim=-1)
-        return q, k, v
-    
-def scaled_dot_product_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask=None,dropout=None) -> torch.Tensor:
-    """softmax(qk^T / sqrt(head_dim)) @ v -- mask unused for VAE (non-causal), kept for API parity
-    dropout is applied on attention probabilities after softmax.."""
-    logits = q @ k.transpose(3, 2)
-    _, _, _, d_head = q.shape
-    scale = d_head ** (-0.5)
-    logits = logits * scale
-    if mask is not None:
-        logits = logits.masked_fill(mask == 0, -float("inf"))
-    attn = torch.softmax(logits, dim=-1)
-    if dropout:
-        attn = dropout(attn)
-    out = attn @ v
-    return out
-
-
 class MultiHeadAttention(nn.Module):
     """Vanilla MHA -- sin-cos model variant. Uses QKVProjection, split_heads,
     scaled_dot_product_attention, merge_heads."""
@@ -303,15 +276,15 @@ class MultiHeadAttention(nn.Module):
         self.n_heads = n_heads
         self.dropout = dropout
         self.attn_dropout  =nn.Dropout(dropout)
-        self.qkv_proj = QKVProjection(d_model)
+        self.qkv = nn.Linear(d_model, 3 * d_model)
         self.out_proj = nn.Linear(d_model, d_model,bias=bias)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        q, k, v = self.qkv_proj(x)
+        q, k, v = self.qkv(x).chunk(3, dim=-1)
         q = split_heads(q, self.n_heads)
         k = split_heads(k, self.n_heads)
         v = split_heads(v, self.n_heads)
-        out = scaled_dot_product_attention(q, k, v,dropout=self.attn_dropout)
+        out = F.scaled_dot_product_attention(q, k, v, dropout_p=self.dropout if self.training else 0.0)
         out = merge_heads(out)
         out = self.out_proj(out)
         return out
@@ -328,38 +301,24 @@ class RoPEAttention(nn.Module):
         self.grid_w = grid_w
 
         self.attn_dropout = nn.Dropout(dropout)
-        self.qkv_proj = QKVProjection(d_model=d_model)
+        self.qkv = nn.Linear(d_model, 3 * d_model)
         self.out_proj = nn.Linear(in_features=d_model,out_features=d_model,bias=bias)
         assert d_model%n_heads == 0,f"d_model must be divided by n_head"
         head_dim = d_model//n_heads
-        cos_cache, sin_cache = build_rope_cache_2d(
-            dim=head_dim,
-            grid_h=grid_h,
-            grid_w=grid_w
-        )
+        cos_cache, sin_cache = build_rope_cache_2d(dim=head_dim,grid_h=grid_h,grid_w=grid_w)
 
-
-        self.register_buffer(
-            "cos_cache",
-            cos_cache,
-            persistent=False
-        )
-
-        self.register_buffer(
-            "sin_cache",
-            sin_cache,
-            persistent=False
-        )
+        self.register_buffer("cos_cache",cos_cache,persistent=False)
+        self.register_buffer("sin_cache",sin_cache,persistent=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         
-        q, k, v = self.qkv_proj(x)
+        q, k, v = self.qkv(x).chunk(3, dim=-1)
         q = split_heads(q, self.n_heads)
         k = split_heads(k, self.n_heads)
         v = split_heads(v, self.n_heads)
         q_rotated = apply_rope_2d(x=q,cos=self.cos_cache,sin=self.sin_cache)
         k_rotated = apply_rope_2d(x=k,cos=self.cos_cache,sin=self.sin_cache)
-        out = scaled_dot_product_attention(q_rotated, k_rotated, v,dropout=self.attn_dropout)
+        out = F.scaled_dot_product_attention(q_rotated, k_rotated, v, dropout_p=self.dropout if self.training else 0.0)
         out = merge_heads(out)
         out = self.out_proj(out)
         return out
