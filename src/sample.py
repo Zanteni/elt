@@ -395,14 +395,14 @@ class DiTSampler(Sampler):
             device=self.device,
         )
 
-
+        print("before tokens_to_latent:", latents.shape)
         latents = tokens_to_latent(
             latents,
             self.vae.encoder.config.grid_h,
             self.vae.encoder.config.grid_w,
         )
 
-
+        print("after tokens_to_latent:", latents.shape)
         images = self.vae.decoder(
             latents
         )
