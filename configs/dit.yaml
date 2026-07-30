@@ -83,4 +83,4 @@ loss:
   diffusion: mse
 train:
 
-  resume: checkpoints/dit_60000.pt
+  resume: checkpoints/dit_final.pt
