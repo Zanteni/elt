@@ -15,7 +15,7 @@ from utils import (maybe_resume,
 from eval import extract_images,visualize_reconstruction,build_evaluators,build_fid_metric
 from model import build_model
 from  diffusion  import  build_diffusion
-from sample import DiTSampler
+from sample import build_sampler
 from losses import build_loss
 from  data import build_dataloader
 import  torch
@@ -560,18 +560,13 @@ class DiTTrainer(BaseTrainer):
                 
     def sample(self):
 
-        sampler = DiTSampler(
+        sampler = build_sampler(
         cfg=self.cfg,
         model=self.raw_model,
-        vae=self.vae,
-        diffusion=self.diffusion,
         device=self.device,
-        shape=(
-            self.cfg["sampling"]["num_images"],
-            self.raw_model.cfg.grid_h * self.raw_model.cfg.grid_w,
-            self.raw_model.in_channels,
-        ),
-    )
+        vae=self.vae,
+        diffusion=self.diffusion)
+
 
         outputs = sampler.generate()
 

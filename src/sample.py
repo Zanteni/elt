@@ -349,14 +349,12 @@ class DiTSampler(Sampler):
         return outputs
 
 
-
     @torch.no_grad()
     def _generate_diffusion(self):
 
         self.model.eval()
         self.vae.eval()
 
-
         latents = self.diffusion.sample(
             self.model,
             self.shape,
@@ -367,45 +365,12 @@ class DiTSampler(Sampler):
             device=self.device,
         )
 
-
-        images = self.vae.decoder(
-            latents
-        )
-
+        images = self.vae.decoder(latents)
 
         return {
             "latents": latents.cpu(),
             "images": images.cpu(),
         }
-
-
-    def _generate_diffusion(self):
-
-        self.model.eval()
-        self.vae.eval()
-
-
-        latents = self.diffusion.sample(
-            self.model,
-            self.shape,
-            sampler=self.cfg.diffusion.sampler,
-            num_steps=self.cfg.diffusion.num_steps,
-            guidance_scale=self.cfg.diffusion.guidance_scale,
-            eta=self.cfg.diffusion.eta,
-            device=self.device,
-        )
-
-
-        images = self.vae.decoder(
-            latents
-        )
-
-
-        return {
-            "latents": latents.cpu(),
-            "images": images.cpu(),
-        }
-
 
 def build_sampler(
     cfg,
