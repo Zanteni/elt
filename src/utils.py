@@ -857,7 +857,7 @@ def build_vae_from_checkpoint(
         vae,
         device=device
     )
-
+    vae.to(device) 
     vae.eval()
 
     if freeze:
