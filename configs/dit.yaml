@@ -69,10 +69,9 @@ sampling:
 
   every: 5000
 
-  num_images: 16
-
   diffusion:
-
+    num_images: 16
+    batch_size: 16
     sampler: ddim
     num_steps: 50
     guidance_scale: 1.0
@@ -83,4 +82,7 @@ loss:
   diffusion: mse
 train:
 
-  resume: checkpoints/dit_final.pt
+  resume: checkpoints/dit_195000.pt.pt
+
+conditioning:
+  enabled: true
