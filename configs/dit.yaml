@@ -61,7 +61,22 @@ diffusion:
 
   learn_sigma: false
 
+sampling:
+  checkpoint: checkpoints/dit_final.pt
+  save_dir: samples
 
+  enabled: true
+
+  every: 5000
+
+  num_images: 16
+
+  diffusion:
+
+    sampler: ddim
+    num_steps: 50
+    guidance_scale: 1.0
+    eta: 0.0
 
 loss:
 
