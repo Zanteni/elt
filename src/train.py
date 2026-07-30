@@ -9,11 +9,13 @@ from utils import (maybe_resume,
                    load_config,
                    freeze_model,
                    build_vae_from_checkpoint,
+                   denormalize,
                    EMA
                    )
 from eval import extract_images,visualize_reconstruction,build_evaluators,build_fid_metric
 from model import build_model
 from  diffusion  import  build_diffusion
+from sample import DiTSampler
 from losses import build_loss
 from  data import build_dataloader
 import  torch
@@ -124,7 +126,79 @@ class BaseTrainer:
                     for k, v in metrics.items()
                 )
             )
+    def _use_ema(self):
 
+            if self.ema is not None:
+                return self.ema.apply_shadow(
+                    self.raw_model
+                )
+
+            return None
+
+
+    def _restore_ema(self, backup):
+        if backup is None:
+            return
+        
+        if self.ema is not None:
+
+            self.ema.restore(
+                self.raw_model,
+                backup,
+                )
+            
+    def reset_running_losses(self):
+
+        self.running_sums = {}
+        self.running_count = 0
+
+
+    def update_running_losses(self, losses, batch_size):
+
+        for name, value in losses.items():
+
+            if name not in self.running_sums:
+                self.running_sums[name] = 0.0
+
+            self.running_sums[name] += (
+                value.detach().item() * batch_size
+            )
+
+        self.running_count += batch_size
+
+
+    def get_running_metrics(self):
+
+        if self.running_count == 0:
+            return {}
+
+        return {
+            name: total / self.running_count
+            for name, total in self.running_sums.items()
+        }
+
+    def run_evaluation(self, step):
+
+        backup = self._use_ema()
+
+        try:
+            self.raw_model.eval()
+
+            for name,evaluator in self.evaluators.items():
+
+                result = evaluator.evaluate()
+
+                self._log_evaluation(
+                    step,
+                    name,
+                    result,
+                )
+
+        finally:
+            self._restore_ema(backup)
+            self.raw_model.train()
+
+            
 class VAETrainer(BaseTrainer):
     def __init__(self, cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler=None, ema=None, logger=None, evaluators=None):
         super().__init__(cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler, ema, logger, evaluators)
@@ -196,47 +270,42 @@ class VAETrainer(BaseTrainer):
 
     def log(self, step, train_output):
 
-        losses = train_output["losses"]
-        batch_size = train_output["batch_size"]
+        self.update_running_losses(
+            train_output["losses"],
+            train_output["batch_size"],
+        )
 
-        # accumulate
-        for name, value in losses.items():
 
-            if name not in self.running_sums:
-                self.running_sums[name] = 0.0
-
-            self.running_sums[name] += value.detach().item() * batch_size
-
-        self.running_count += batch_size
-
-        # only log every N steps
         if step % self.cfg["train"]["log_every"] != 0:
             return
 
-        metrics = {
-            name: total / self.running_count
-            for name, total in self.running_sums.items()
-        }
+
+        metrics = self.get_running_metrics()
+
 
         if self.accelerator.is_main_process:
 
             wandb.log(
                 {
-                    **{f"train/{k}": v for k, v in metrics.items()},
-                    "step": step,
+                    **{
+                        f"train/{k}":v
+                        for k,v in metrics.items()
+                    },
+                    "step":step
                 }
             )
 
             print(
                 f"step {step} | "
-                + " ".join(
+                +
+                " ".join(
                     f"{k}: {v:.5f}"
-                    for k, v in metrics.items()
+                    for k,v in metrics.items()
                 )
             )
 
-        self.running_sums = {}
-        self.running_count = 0
+
+        self.reset_running_losses()
 
     def validate(self, step):
 
@@ -249,30 +318,7 @@ class VAETrainer(BaseTrainer):
         if not self.accelerator.is_main_process:
             return
 
-        if self.ema is not None:
-            backup = self.ema.apply_shadow(self.raw_model)
-        try:
-
-            self.raw_model.eval()
-
-            for name, evaluator in self.evaluators.items():
-
-                result = evaluator.evaluate()
-
-                self._log_evaluation(
-                    step,
-                    name,
-                    result,
-                )
-
-        finally:
-            if self.ema is not None:
-                self.ema.restore(
-                    self.raw_model,
-                    backup,
-                )
-
-            self.raw_model.train()
+        self.run_evaluation(step)
 
     def save_checkpoint(self, step):
 
@@ -509,80 +555,90 @@ class DiTTrainer(BaseTrainer):
         if not self.accelerator.is_main_process:
             return
 
+        self.run_evaluation(step)
 
-        if self.ema is not None:
-            backup = self.ema.apply_shadow(
-                self.raw_model
-            )
+                
+    def sample(self):
+
+        sampler = DiTSampler(
+            cfg=self.cfg["sampling"],
+            model=self.raw_model,
+            vae=self.vae,
+            diffusion=self.diffusion,
+            device=self.device,
+            shape=(
+                self.cfg["sampling"]["num_images"],
+                self.raw_model.cfg.grid_h * self.raw_model.cfg.grid_w,
+                self.raw_model.in_channels,
+            ),
+        )
+
+        outputs = sampler.generate()
+
+        return outputs["diffusion"]["images"]
+
+    def maybe_sample(self, step):
+
+        if not self.cfg["sampling"]["enabled"]:
+            return
+
+        if step % self.cfg["sampling"]["every"] != 0:
+            return
+
+        if not self.accelerator.is_main_process:
+            return
+
+
+        backup = self._use_ema()
 
         try:
 
             self.raw_model.eval()
 
-            for name, evaluator in self.evaluators.items():
-
-                result = evaluator.evaluate()
-
-                self._log_evaluation(
-                    step,
-                    name,
-                    result,
-                )
-
-        finally:
-
-            if self.ema is not None:
-                self.ema.restore(
-                    self.raw_model,
-                    backup,
-                )
-
-            self.raw_model.train()
-
-    def log(self,step,train_output):
-
-        losses = train_output["losses"]
-        batch_size = train_output["batch_size"]
+            images = self.sample()
+            images = denormalize(images)
 
 
-        for name,value in losses.items():
-
-            if name not in self.running_sums:
-                self.running_sums[name]=0.0
-
-
-            self.running_sums[name]+=(
-                value.detach().item()*batch_size
+            wandb.log(
+                {
+                    "samples": [
+                        wandb.Image(img)
+                        for img in images
+                    ],
+                    "step": step,
+                }
             )
 
 
-        self.running_count += batch_size
+        finally:
 
+            self._restore_ema(backup)
 
+            self.raw_model.train()
 
-        if step % self.cfg["train"]["log_every"] !=0:
+    def log(self, step, train_output):
+
+        self.update_running_losses(
+            train_output["losses"],
+            train_output["batch_size"],
+        )
+
+        if step % self.cfg["train"]["log_every"] != 0:
             return
 
-
-
-        metrics = {
-            name: total/self.running_count
-            for name,total in self.running_sums.items()
-        }
-
+        metrics = self.get_running_metrics()
 
         if self.accelerator.is_main_process:
 
             wandb.log(
                 {
                     **{
-                        f"train/{k}":v
+                        f"train/{k}": v
                         for k,v in metrics.items()
                     },
-                    "step":step
+                    "step": step
                 }
             )
-
 
             print(
                 f"step {step} | "
@@ -593,11 +649,8 @@ class DiTTrainer(BaseTrainer):
                 )
             )
 
-
-        self.running_sums={}
-        self.running_count=0
-
-
+        self.reset_running_losses()
+        
     def save_checkpoint(self,step):
 
         if step % self.cfg["train"]["ckpt_every"] !=0:
@@ -672,6 +725,7 @@ class DiTTrainer(BaseTrainer):
                 step
             )
 
+            self.maybe_sample(step)
 
             self.save_checkpoint(
                 step
@@ -745,7 +799,6 @@ def build_dit_trainer(cfg):
 
 
     # evaluation dependency
-    fid_metric = None
     fid_metric = build_fid_metric(cfg,device)
 
 
