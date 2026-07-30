@@ -561,17 +561,17 @@ class DiTTrainer(BaseTrainer):
     def sample(self):
 
         sampler = DiTSampler(
-            cfg=self.cfg["sampling"],
-            model=self.raw_model,
-            vae=self.vae,
-            diffusion=self.diffusion,
-            device=self.device,
-            shape=(
-                self.cfg["sampling"]["num_images"],
-                self.raw_model.cfg.grid_h * self.raw_model.cfg.grid_w,
-                self.raw_model.in_channels,
-            ),
-        )
+        cfg=self.cfg,
+        model=self.raw_model,
+        vae=self.vae,
+        diffusion=self.diffusion,
+        device=self.device,
+        shape=(
+            self.cfg["sampling"]["num_images"],
+            self.raw_model.cfg.grid_h * self.raw_model.cfg.grid_w,
+            self.raw_model.in_channels,
+        ),
+    )
 
         outputs = sampler.generate()
 
