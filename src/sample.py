@@ -1,38 +1,512 @@
-# # sample / generate new images
+# ============================================================
+# 1. Sampling Configs
+# ============================================================
+
+from dataclasses import dataclass
+import torch
+from  data import extract_images
+
+# ------------------------------------------------------------
+# Shared Sampling Configs
+# ------------------------------------------------------------
+
+@dataclass
+class ReconstructionSamplingConfig:
+    """
+    Reconstruct images from an input dataloader.
+
+    image
+        ↓
+    encoder
+        ↓
+    decoder
+        ↓
+    reconstruction
+    """
+
+    enabled: bool = True
+    num_images: int = 8
+    save_dir: str = "samples"
 
 
-# #-----------------------------------
-# # for VAE
-# #----------------------------------
+@dataclass
+class RandomSamplingConfig:
+    """
+    Decode randomly sampled latent vectors.
 
-# Image
+    latent
+        ↓
+    decoder
+        ↓
+    image
+    """
 
-# ↓
-
-# Encoder
-
-# ↓
-
-# Decoder
-
-# ↓
-
-# Save Reconstruction
+    enabled: bool = False
+    num_images: int = 8
+    save_dir: str = "samples"
 
 
-# #-----------------------------------
-# # for DIT/ELT
-# #----------------------------------
-# Noise
+@dataclass
+class DiffusionSamplingConfig:
+    """
+    Generate images from a diffusion model.
 
-# ↓
+    noise
+        ↓
+    diffusion
+        ↓
+    latent
+        ↓
+    VAE decoder
+        ↓
+    image
+    """
 
-# Diffusion Sampling
+    enabled: bool = True
 
-# ↓
+    num_images: int = 64
+    batch_size: int = 64
 
-# Decoder
+    sampler: str = "ddim"
+    num_steps: int = 50
 
-# ↓
+    guidance_scale: float = 1.0
+    eta: float = 0.0
 
-# Save Image
+    save_dir: str = "samples"
+
+# ------------------------------------------------------------
+# VAE Sampling Config
+# ------------------------------------------------------------
+
+@dataclass
+class VAESamplingConfig:
+
+    reconstruction: ReconstructionSamplingConfig
+
+    random: RandomSamplingConfig
+
+# ------------------------------------------------------------
+# DiT Sampling Config
+# ------------------------------------------------------------
+
+@dataclass
+class DiTSamplingConfig:
+
+    diffusion: DiffusionSamplingConfig
+
+# ------------------------------------------------------------
+# ELT Sampling Config
+# ------------------------------------------------------------
+
+@dataclass
+class ELTSamplingConfig:
+    """
+    Placeholder.
+
+    Example later:
+
+        diffusion: DiffusionSamplingConfig
+        refinement: RefinementSamplingConfig
+    """
+
+    pass
+
+# ============================================================
+# 2. Base Sampler
+# ============================================================
+
+class Sampler:
+    """
+    Base class for every sampler.
+
+    Every sampler owns:
+        - a configuration
+        - a device
+
+    Every sampler must implement:
+        generate()
+    """
+
+    def __init__(
+        self,
+        cfg,
+        device,
+    ):
+
+        self.cfg = cfg
+        self.device = device
+
+
+    @torch.no_grad()
+    def generate(self):
+        """
+        Returns
+        -------
+        dict
+
+        Example (VAE reconstruction)
+
+        {
+            "images": Tensor
+        }
+
+        Example (DiT)
+
+        {
+            "images": Tensor
+        }
+        """
+
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement generate()."
+        )
+
+# ============================================================
+# 3. VAE Sampler
+# ============================================================
+
+class VAESampler(Sampler):
+
+    def __init__(
+        self,
+        cfg,
+        model,
+        dataloader,
+        device,
+    ):
+
+        super().__init__(
+            cfg,
+            device,
+        )
+
+        self.model = model
+        self.dataloader = dataloader
+
+    def generate(self):
+
+        outputs = {}
+
+        if self.cfg.reconstruction.enabled:
+
+            outputs["reconstruction"] = (
+                self._generate_reconstruction()
+            )
+
+
+        if self.cfg.random.enabled:
+
+            outputs["random"] = (
+                self._generate_random()
+            )
+
+
+        return outputs
+    
+    def _generate_reconstruction(self):
+
+        was_training = self.model.training
+
+        self.model.eval()
+
+        originals = []
+
+        reconstructions = []
+
+        num_images = 0
+        target = self.cfg.reconstruction.num_images
+
+        try:
+
+            for batch in self.dataloader:
+
+                images = extract_images(batch)
+
+                images = images.to(
+                    self.device,
+                    non_blocking=True,
+                )
+
+                output = self.model(images)
+
+                recon = output["recon"]
+
+                remaining = target - num_images
+
+                originals.append(
+                    images[:remaining].cpu()
+                )
+
+                reconstructions.append(
+                    recon[:remaining].cpu()
+                )
+
+                num_images += min(
+                    images.size(0),
+                    remaining,
+                )
+
+                if num_images >= target:
+                    break
+
+        finally:
+
+            self.model.train(was_training)
+
+        originals = torch.cat(
+            originals,
+            dim=0,
+        )[: self.cfg.reconstruction.num_images]
+
+        reconstructions = torch.cat(
+            reconstructions,
+            dim=0,
+        )[: self.cfg.reconstruction.num_images]
+
+        return {
+
+            "images": {
+
+                "originals": originals,
+
+                "reconstructions": reconstructions,
+
+            }
+
+        }
+    @torch.no_grad()
+    def _generate_random(self):
+
+        was_training = self.model.training
+
+        self.model.eval()
+
+        try:
+
+            vae_cfg = self.model.encoder.config
+
+
+            z = torch.randn(
+                self.cfg.random.num_images,
+                vae_cfg.latent_dim,
+                vae_cfg.grid_h,
+                vae_cfg.grid_w,
+                device=self.device,
+            )
+
+
+            images = self.model.decoder(z)
+
+
+        finally:
+
+            self.model.train(was_training)
+
+
+        return {
+            "images": images.cpu()
+        }
+
+# ====================================
+# DiT Sampler
+# ====================================
+
+class DiTSampler(Sampler):
+
+    def __init__(
+        self,
+        cfg,
+        model,
+        vae,
+        diffusion,
+        device,
+        shape,
+    ):
+
+        super().__init__(
+            cfg,
+            device
+        )
+
+        self.model = model
+        self.vae = vae
+        self.diffusion = diffusion
+        self.shape = shape
+
+
+    @torch.no_grad()
+    def generate(self):
+
+        outputs = {}
+
+        if self.cfg.diffusion.enabled:
+
+            outputs["diffusion"] = (
+                self._generate_diffusion()
+            )
+
+        return outputs
+
+
+
+    @torch.no_grad()
+    def _generate_diffusion(self):
+
+        self.model.eval()
+        self.vae.eval()
+
+
+        latents = self.diffusion.sample(
+            self.model,
+            self.shape,
+            sampler=self.cfg.diffusion.sampler,
+            num_steps=self.cfg.diffusion.num_steps,
+            guidance_scale=self.cfg.diffusion.guidance_scale,
+            eta=self.cfg.diffusion.eta,
+            device=self.device,
+        )
+
+
+        images = self.vae.decoder(
+            latents
+        )
+
+
+        return {
+            "latents": latents.cpu(),
+            "images": images.cpu(),
+        }
+
+
+    def _generate_diffusion(self):
+
+        self.model.eval()
+        self.vae.eval()
+
+
+        latents = self.diffusion.sample(
+            self.model,
+            self.shape,
+            sampler=self.cfg.diffusion.sampler,
+            num_steps=self.cfg.diffusion.num_steps,
+            guidance_scale=self.cfg.diffusion.guidance_scale,
+            eta=self.cfg.diffusion.eta,
+            device=self.device,
+        )
+
+
+        latents = tokens_to_latent(
+            latents,
+            self.vae.encoder.config.grid_h,
+            self.vae.encoder.config.grid_w,
+        )
+
+
+        images = self.vae.decoder(
+            latents
+        )
+
+
+        return {
+            "latents": latents.cpu(),
+            "images": images.cpu(),
+        }
+
+
+def build_sampler(
+    cfg,
+    model,
+    device,
+    vae=None,
+    diffusion=None,
+    dataloader=None,
+):
+
+    name = cfg["model"]["name"]
+
+
+    if name == "vae":
+
+        sampling_cfg = VAESamplingConfig(
+            reconstruction=ReconstructionSamplingConfig(
+                **cfg["sampling"]["reconstruction"]
+            ),
+
+            random=RandomSamplingConfig(
+                **cfg["sampling"]["random"]
+            ),
+        )
+
+
+        return VAESampler(
+            cfg=sampling_cfg,
+            model=model,
+            dataloader=dataloader,
+            device=device,
+        )
+
+
+    elif name == "dit":
+
+        sampling_cfg = DiTSamplingConfig(
+            diffusion=DiffusionSamplingConfig(
+                **cfg["sampling"]["diffusion"]
+            )
+        )
+
+
+        shape = (
+            sampling_cfg.diffusion.batch_size,
+            cfg["model"]["dit"]["grid_h"]
+            *
+            cfg["model"]["dit"]["grid_w"],
+            cfg["model"]["dit"]["latent_dim"],
+        )
+
+
+        return DiTSampler(
+            cfg=sampling_cfg,
+            model=model,
+            vae=vae,
+            diffusion=diffusion,
+            device=device,
+            shape=shape,
+        )
+
+
+    else:
+
+        raise ValueError(
+            f"Unknown sampler for model {name}"
+        )
+    
+#======================
+#Utility
+#======================
+
+def tokens_to_latent(
+    x,
+    grid_h,
+    grid_w,
+):
+    B,N,C = x.shape
+
+    assert N == grid_h * grid_w
+
+    x = x.reshape(
+        B,
+        grid_h,
+        grid_w,
+        C,
+    )
+
+    x = x.permute(
+        0,
+        3,
+        1,
+        2,
+    )
+
+    return x
+
