@@ -16,7 +16,7 @@ from utils import (
 
 from model import build_model
 from diffusion import build_diffusion
-from sample import DiTSampler
+from sample import build_sampler
 
 
 
@@ -133,30 +133,13 @@ def main():
     print("Creating sampler...")
 
 
-    sampler = DiTSampler(
-
-        cfg=cfg["sampling"],
-
-        model=model,
-
-        vae=vae,
-
-        diffusion=diffusion,
-
-        device=device,
-
-        shape=(
-
-            cfg["sampling"]["num_images"],
-
-            model.cfg.grid_h *
-            model.cfg.grid_w,
-
-            model.in_channels,
-
-        ),
-    )
-
+    sampler = build_sampler(
+    cfg=cfg,
+    model=model,
+    device=device,
+    vae=vae,
+    diffusion=diffusion,
+)
 
 
     # ----------------------------
