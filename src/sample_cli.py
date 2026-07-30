@@ -58,9 +58,6 @@ def main():
         "configs/default.yaml",
         "configs/dit.yaml",
     )
-    print("checkpoint latent_dim:", vae.cfg.latent_dim)
-    print("latent_proj.in_features:", vae.decoder.latent_proj.in_features)
-
     device = (
         "cuda"
         if torch.cuda.is_available()
@@ -106,7 +103,9 @@ def main():
         device=device,
         freeze=True,
     )
-
+    print("checkpoint latent_dim:", vae.cfg.latent_dim)
+    print("latent_proj.in_features:", vae.decoder.latent_proj.in_features)
+    
 
     vae.eval()
 
