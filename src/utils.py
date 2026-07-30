@@ -864,3 +864,9 @@ def build_vae_from_checkpoint(
         freeze_model(vae)
 
     return vae
+
+def denormalize(x):
+
+    x = (x + 1) / 2
+
+    return x.clamp(0,1)
