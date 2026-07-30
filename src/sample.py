@@ -340,7 +340,7 @@ class DiTSampler(Sampler):
 
         outputs = {}
 
-        if self.cfg.diffusion.enabled:
+        if self.cfg["diffusion"]["enabled"]:
 
             outputs["diffusion"] = (
                 self._generate_diffusion()
