@@ -822,8 +822,7 @@ class TimestepEmbedder(nn.Module):
         return emb
     
     def forward(self, t):
-        emb = self.timestep_embedding(t)
-        return self.mlp(emb)
+        return self.mlp(self.embedding_cache[t])
 
 
 class LabelEmbedder(nn.Module):
