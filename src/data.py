@@ -87,14 +87,57 @@ def _make_loader(dataset, cfg, is_train):
 
 
 def extract_images(batch):
-    """Supports image, or (image,label), or (image,label,...). Returns image."""
-    if isinstance(batch, (list, tuple)):
+    """
+    Test version:
+    supports:
+    - Tensor
+    - (images, labels)
+    - {"image": images}
+    - {"images": images}
+    """
+
+    if torch.is_tensor(batch):
+        return batch
+
+    if isinstance(batch, (tuple, list)):
         return batch[0]
-    return batch
+
+    if isinstance(batch, dict):
+        if "image" in batch:
+            return batch["image"]
+
+        if "images" in batch:
+            return batch["images"]
+
+        raise KeyError(
+            f"Cannot find image key. Available keys: {batch.keys()}"
+        )
+
+    raise TypeError(
+        f"Unsupported batch type: {type(batch)}"
+    )
+
 
 def extract_labels(batch):
-    if isinstance(batch, (list, tuple)) and len(batch) > 1:
+    """
+    Test version:
+    supports:
+    - (images, labels)
+    - {"label": labels}
+    - {"labels": labels}
+    """
+
+    if isinstance(batch, (tuple, list)):
         return batch[1]
+
+    if isinstance(batch, dict):
+
+        if "label" in batch:
+            return batch["label"]
+
+        if "labels" in batch:
+            return batch["labels"]
+
     return None
 
 
