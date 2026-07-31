@@ -868,6 +868,14 @@ class DiTBase(nn.Module):
         self.backbone = DitBackbone(cfg=cfg,attn_cfg=attn_cfg)
         self.final_layer = FinalLayer(cfg,self.out_channels)
 
+    def forward_features(self,z,t,y=None):
+        x = self.x_embedder(z)
+        if self.pos_embed is not None:
+            x = x + self.pos_embed
+        c = self._build_condition(z,t,y)
+        x = self.forward_backbone(x,c)
+        return x,c
+    
     def forward_backbone(self, x:torch.Tensor, c:torch.Tensor):
         return self.backbone(x, c)
     
@@ -880,11 +888,7 @@ class DiTBase(nn.Module):
         return c
 
     def forward(self,z:torch.Tensor,t,y = None):
-        x = self.x_embedder(z)
-        if self.pos_embed is not None:
-            x = x + self.pos_embed
-        c = self._build_condition(z,t,y)
-        x = self.forward_backbone(x,c)
+        x,c = self.forward_features(z,t,y)
         x = self.final_layer(x,c)
         if self.learn_sigma:
             eps,v = torch.chunk(x,2,dim=-1)
@@ -918,19 +922,36 @@ class LoopedDiT(DiTBase):
                     x = self.backbone(x,c)
                     history[l+1] = x
             return x,history
-    
-    def forward(self,z,t,y=None,record =None):
+    def forward_features(self,z,t,y=None,record = None):
         x = self.x_embedder(z)
-        if self.pos_embed is not None:
-            x = x+self.pos_embed
+        if self.pos_embed is  not None:
+            x = x + self.pos_embed
         c = self._build_condition(z,t,y)
         x,history = self.forward_looped(x,c,record)
+        return x,c,history
+    
+    def forward(self,z,t,y=None,record =None):
+        
+        x,c,history = self.forward_features(z,t,y,record)
         x = self.final_layer(x,c)
         if self.learn_sigma:
             eps,v=torch.chunk(x,2,dim=-1)
             return eps,v,history
         return x,history
 
+# REPA
+class REPA(nn.Module):
+    def  __init__(self,dit_dim:int,repr_dim:int):
+        super().__init__()
+        self.proj = nn.Linear(dit_dim,repr_dim)
+
+    def forward(self,dit_features,target_features):
+        z = self.proj(dit_features)
+        z = F.normalize(z,dim=-1)
+        target_features = F.normalize(target_features,dim=-1)
+        loss = 1-(z*target_features).sum(-1).mean()
+        return loss
+    
 #  Dit Factory
 
 #1.Vanilla Dit
