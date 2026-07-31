@@ -103,97 +103,53 @@ class BaseTrainer:
         raise NotImplementedError
     
     def _log_evaluation(self, step, name, result):
-
         metrics = result.get("metrics", {})
-
+        logs = {**{f"eval/{name}/{k}": v for k, v in metrics.items()},"step": step,}
+        images = result.get("images", None)
+        if images is not None:
+            grid = visualize_reconstruction(images["originals"],images["reconstructions"])
+            logs[f"eval/{name}/reconstruction"] = wandb.Image(grid)
         if self.accelerator.is_main_process:
-
-            wandb.log(
-                {
-                    **{
-                        f"eval/{name}/{k}": v
-                        for k, v in metrics.items()
-                    },
-                    "step": step,
-                }
-            )
-
-            print(
-                f"eval step {step} | {name}: "
-                +
-                " ".join(
-                    f"{k}: {v:.5f}"
-                    for k, v in metrics.items()
-                )
-            )
+            wandb.log(logs)
+            print(f"eval step {step} | {name}: "+" ".join(f"{k}: {v:.5f}"for k, v in metrics.items()))
     def _use_ema(self):
-
             if self.ema is not None:
-                return self.ema.apply_shadow(
-                    self.raw_model
-                )
-
+                return self.ema.apply_shadow(self.raw_model)
             return None
-
 
     def _restore_ema(self, backup):
         if backup is None:
             return
-        
         if self.ema is not None:
-
-            self.ema.restore(
-                self.raw_model,
-                backup,
-                )
+            self.ema.restore(self.raw_model,backup,)
             
     def reset_running_losses(self):
 
         self.running_sums = {}
         self.running_count = 0
 
-
     def update_running_losses(self, losses, batch_size):
-
         for name, value in losses.items():
-
             if name not in self.running_sums:
                 self.running_sums[name] = 0.0
-
-            self.running_sums[name] += (
-                value.detach().item() * batch_size
-            )
-
+            self.running_sums[name] += (value.detach().item() * batch_size)
         self.running_count += batch_size
 
-
     def get_running_metrics(self):
-
         if self.running_count == 0:
             return {}
-
         return {
             name: total / self.running_count
             for name, total in self.running_sums.items()
         }
-
+    
     def run_evaluation(self, step):
-
         backup = self._use_ema()
-
         try:
             self.raw_model.eval()
-
             for name,evaluator in self.evaluators.items():
-
                 result = evaluator.evaluate()
-
-                self._log_evaluation(
-                    step,
-                    name,
-                    result,
-                )
-
+                self._log_evaluation(step,name,result,)
         finally:
             self._restore_ema(backup)
             self.raw_model.train()
@@ -231,126 +187,51 @@ class VAETrainer(BaseTrainer):
         
     def train_step(self, batch):
         images = extract_images(batch)
-
         with self.accelerator.accumulate(self.model):
-
             with self.accelerator.autocast():
-
                 out = self.model(images)
-
-                losses = self.criterion(
-                    out["recon"],
-                    images,
-                    out["mu"],
-                    out["logvar"],
-                )
-
+                losses = self.criterion(out["recon"],images,out["mu"],out["logvar"])
                 loss = losses["loss"]
-
             self.optimizer.zero_grad(set_to_none=True)
-
             self.accelerator.backward(loss)
-
-            self.accelerator.clip_grad_norm_(
-                self.model.parameters(),
-                self.cfg["train"]["grad_clip_norm"],
-            )
-
+            self.accelerator.clip_grad_norm_(self.model.parameters(),self.cfg["train"]["grad_clip_norm"])
             self.optimizer.step()
             if self.scheduler is not None:
                 self.scheduler.step()
-
         if self.ema is not None:
             self.ema.update(self.raw_model)
-
         return {
             "losses": losses,
             "batch_size": images.size(0)
             }
 
     def log(self, step, train_output):
-
-        self.update_running_losses(
-            train_output["losses"],
-            train_output["batch_size"],
-        )
-
-
+        self.update_running_losses(train_output["losses"],train_output["batch_size"],)
         if step % self.cfg["train"]["log_every"] != 0:
             return
-
-
         metrics = self.get_running_metrics()
-
-
         if self.accelerator.is_main_process:
-
-            wandb.log(
-                {
-                    **{
-                        f"train/{k}":v
-                        for k,v in metrics.items()
-                    },
-                    "step":step
-                }
-            )
-
-            print(
-                f"step {step} | "
-                +
-                " ".join(
-                    f"{k}: {v:.5f}"
-                    for k,v in metrics.items()
-                )
-            )
-
-
+            wandb.log({**{f"train/{k}":v for k,v in metrics.items()},"step":step})
+            print(f"step {step} | "+" ".join(f"{k}: {v:.5f}"for k,v in metrics.items()))
         self.reset_running_losses()
 
     def validate(self, step):
-
         if step == 0:
             return
-
         if step % self.cfg["eval"]["every"] != 0:
             return
-
         if not self.accelerator.is_main_process:
             return
-
         self.run_evaluation(step)
 
     def save_checkpoint(self, step):
 
         if step % self.cfg["train"]["ckpt_every"] != 0:
             return
-
         if not self.accelerator.is_main_process:
             return
-
-        path = os.path.join(
-
-            self.checkpoint_dir,
-
-            f"{self.cfg['model']['name']}_{step}.pt"
-
-        )
-
-        save_checkpoint(
-
-            path=path,
-
-            model=self.raw_model,
-
-            optimizer=self.optimizer,
-
-            ema=self.ema,
-
-            epoch=step,
-
-            cfg=self.cfg,
-
-        )
+        path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_{step}.pt")
+        save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,ema=self.ema,epoch=step,cfg=self.cfg)
     def save_final_checkpoint(self):
 
         if not self.accelerator.is_main_process:
