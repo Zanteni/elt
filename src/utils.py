@@ -870,3 +870,10 @@ def denormalize(x):
     x = (x + 1) / 2
 
     return x.clamp(0,1)
+
+def sample_labels(num_classes, num_images, device, mode="random"):
+    if num_classes is None:
+        return None
+    if mode == "cycle":
+        return (torch.arange(num_images, device=device) % num_classes)
+    return torch.randint(0, num_classes, (num_images,), device=device)

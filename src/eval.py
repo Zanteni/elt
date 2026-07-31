@@ -5,7 +5,7 @@
 import torch
 import torchvision.utils as vutils
 import matplotlib.pyplot as plt
-
+from utils  import sample_labels
 from dataclasses import dataclass
 
 from data import extract_images
@@ -348,7 +348,7 @@ class FIDEvaluator(Evaluator):
 
                 # conditional label if needed
 
-                y = None
+                y = sample_labels(self.model.effective_num_classes, batch_size, self.device, mode="random")
 
 
 

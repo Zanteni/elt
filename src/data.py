@@ -92,6 +92,11 @@ def extract_images(batch):
         return batch[0]
     return batch
 
+def extract_labels(batch):
+    if isinstance(batch, (list, tuple)) and len(batch) > 1:
+        return batch[1]
+    return None
+
 
 # ===========================================================================
 # Public: image DataLoader (config only)
