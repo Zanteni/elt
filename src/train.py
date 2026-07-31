@@ -17,7 +17,7 @@ from model import build_model
 from  diffusion  import  build_diffusion
 from sample import build_sampler
 from losses import build_loss
-from  data import build_dataloader
+from  data import build_dataloader,extract_labels
 import  torch
 import wandb,os
 
@@ -469,361 +469,147 @@ class DiTTrainer(BaseTrainer):
         self.train_iter = InfiniteDataLoader(self.train_loader)
         self.running_sums = {}
         self.running_count = 0
+    def _parse_model_output(self, output):
 
+        if isinstance(output, tuple):
+
+            if len(output) == 3:
+                pred, _, history = output
+                return {
+                    "pred": pred,
+                    "history": history
+                }
+
+            elif len(output) == 2:
+                pred, _ = output
+                return {
+                    "pred": pred,
+                    "history": None
+                    }
+        return {
+            "pred": output,
+            "history": None
+        }
     def train_step(self,batch):
-
         images = extract_images(batch)
-
-
+        labels = extract_labels(batch) if self.cfg["conditioning"]["enabled"] else None
         with torch.no_grad():
-
             mu, logvar = self.vae.encoder(images)
-
             latents = mu
-
-
-
         with self.accelerator.accumulate(self.model):
-
             with self.accelerator.autocast():
-
-
-                x_t,t,noise = self.diffusion(
-                    latents
-                )
-
-
-                output = self.model(
-                    x_t,
-                    t
-                )
-
-
-                eps_pred,_ = self.diffusion._split_output(
-                    output
-                )
-
-
-                losses = self.criterion(
-                    eps_pred,
-                    noise
-                )
-
-
+                x_t,t,noise = self.diffusion(latents)
+                output = self.model(x_t,t,labels)
+                model_output = self._parse_model_output(output)
+                eps_pred,_ = self.diffusion._split_output(model_output["pred"])
+                losses = self.criterion(eps_pred,noise)
                 loss = losses["loss"]
-
-
-
-            self.optimizer.zero_grad(
-                set_to_none=True
-            )
-
-
+            self.optimizer.zero_grad(set_to_none=True)
             self.accelerator.backward(loss)
-
-
-            self.accelerator.clip_grad_norm_(
-                self.model.parameters(),
-                self.cfg["train"]["grad_clip_norm"]
-            )
-
-
+            self.accelerator.clip_grad_norm_(self.model.parameters(),self.cfg["train"]["grad_clip_norm"])
             self.optimizer.step()
-
-
             if self.scheduler is not None:
                 self.scheduler.step()
-
-
         if self.ema is not None:
-            self.ema.update(
-                self.raw_model
-            )
-
-
+            self.ema.update(self.raw_model)
         return {
             "losses": losses,
-            "batch_size": images.size(0)
+            "batch_size": images.size(0),
+            "history": model_output["history"]
         }
 
-
     def validate(self, step):
-
         if step % self.cfg["eval"]["every"] != 0:
             return
-
         if not self.accelerator.is_main_process:
             return
-
         self.run_evaluation(step)
-
                 
     def sample(self):
-
-        sampler = build_sampler(
-        cfg=self.cfg,
-        model=self.raw_model,
-        device=self.device,
-        vae=self.vae,
-        diffusion=self.diffusion)
-
-
+        sampler = build_sampler(cfg=self.cfg,model=self.raw_model,device=self.device,vae=self.vae,diffusion=self.diffusion)
         outputs = sampler.generate()
-
         return outputs["diffusion"]["images"]
 
     def maybe_sample(self, step):
-
         if not self.cfg["sampling"]["enabled"]:
             return
-
         if step % self.cfg["sampling"]["every"] != 0:
             return
-
         if not self.accelerator.is_main_process:
             return
-
-
         backup = self._use_ema()
-
         try:
-
             self.raw_model.eval()
-
             images = self.sample()
             images = denormalize(images)
-
-
-            wandb.log(
-                {
-                    "samples": [
-                        wandb.Image(img)
-                        for img in images
-                    ],
-                    "step": step,
-                }
-            )
-
-
+            wandb.log({"samples": [wandb.Image(img)for img in images],"step": step,})
         finally:
-
             self._restore_ema(backup)
-
             self.raw_model.train()
 
     def log(self, step, train_output):
-
-        self.update_running_losses(
-            train_output["losses"],
-            train_output["batch_size"],
-        )
-
+        self.update_running_losses(train_output["losses"],train_output["batch_size"])
         if step % self.cfg["train"]["log_every"] != 0:
             return
-
         metrics = self.get_running_metrics()
-
         if self.accelerator.is_main_process:
-
-            wandb.log(
-                {
-                    **{
-                        f"train/{k}": v
-                        for k,v in metrics.items()
-                    },
-                    "step": step
-                }
-            )
-
-            print(
-                f"step {step} | "
-                +
-                " ".join(
-                    f"{k}: {v:.5f}"
-                    for k,v in metrics.items()
-                )
-            )
-
+            wandb.log({**{f"train/{k}": v for k,v in metrics.items()},"step": step})
+            print(f"step {step} | "+" ".join(f"{k}: {v:.5f}"for k,v in metrics.items()))
         self.reset_running_losses()
         
     def save_checkpoint(self,step):
-
         if step % self.cfg["train"]["ckpt_every"] !=0:
             return
-
-
         if not self.accelerator.is_main_process:
             return
-
-
-        path = os.path.join(
-            self.checkpoint_dir,
-            f"{self.cfg['model']['name']}_{step}.pt"
-        )
-
-
-        save_checkpoint(
-            path=path,
-            model=self.raw_model,
-            optimizer=self.optimizer,
-            scheduler=self.scheduler,
-            ema=self.ema,
-            epoch=step,
-            cfg=self.cfg
-        )
+        path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_{step}.pt")
+        save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,scheduler=self.scheduler,ema=self.ema,epoch=step,cfg=self.cfg)
 
     def save_final_checkpoint(self):
-
         if not self.accelerator.is_main_process:
             return
+        path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_final.pt")
+        save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,scheduler=self.scheduler,ema=self.ema,epoch=self.total_steps,cfg=self.cfg)
 
-
-        path = os.path.join(
-            self.checkpoint_dir,
-            f"{self.cfg['model']['name']}_final.pt"
-        )
-
-
-        save_checkpoint(
-            path=path,
-            model=self.raw_model,
-            optimizer=self.optimizer,
-            scheduler=self.scheduler,
-            ema=self.ema,
-            epoch=self.total_steps,
-            cfg=self.cfg
-        )
-        
     def train(self):
-
         self.setup()
-
-
-        for step in range(
-            self.start_step,
-            self.total_steps
-        ):
-
+        for step in range(self.start_step,self.total_steps):
             batch = next(self.train_iter)
-
-
             train_output = self.train_step(batch)
-
-
-            self.log(
-                step,
-                train_output
-            )
-
-
-            self.validate(
-                step
-            )
-
+            self.log(step,train_output)
+            self.validate(step)
             self.maybe_sample(step)
-
-            self.save_checkpoint(
-                step
-            )
-
-
+            self.save_checkpoint(step)
         self.save_final_checkpoint()
 
 #=============
 # DIT FACTORY
 #==============
 def build_dit_trainer(cfg):
-
     set_seed(cfg["seed"])
-
     checkpoint_dir = setup_environment(cfg)
-
     accelerator = build_accelerator(cfg)
-
     device = accelerator.device
-
     logger = build_logger(cfg, accelerator)
-
-
     # data
-    train_loader = build_dataloader(
-        cfg["data"],
-        split="train"
-    )
-
-    test_loader = build_dataloader(
-        cfg["data"],
-        split="test"
-    )
-
-    loaders = {
-        "train": train_loader,
-        "test": test_loader,
-    }
-
-
+    train_loader = build_dataloader(cfg["data"],split="train")
+    test_loader = build_dataloader(cfg["data"],split="test")
+    loaders = {"train": train_loader,"test": test_loader,}
     # models
     model = build_model(cfg)
-
-    vae = build_vae_from_checkpoint(
-        cfg["vae"]["checkpoint"],
-        device=device,
-        freeze=True,
-    )
-
+    vae = build_vae_from_checkpoint(cfg["vae"]["checkpoint"],device=device,freeze=True)
     diffusion = build_diffusion(cfg)
-
-
     # training objects
     criterion = build_loss(cfg)
+    optimizer = build_optimizer(model,cfg)
+    scheduler = build_scheduler(optimizer,cfg)
 
-    optimizer = build_optimizer(
-        model,
-        cfg
-    )
-
-    scheduler = build_scheduler(
-        optimizer,
-        cfg
-    )
-
-    ema = EMA(
-        model,
-        decay=float(cfg["train"]["ema_decay"])
-    )
-
-
+    ema = EMA(model,decay=float(cfg["train"]["ema_decay"]))
     # evaluation dependency
     fid_metric = build_fid_metric(cfg,device)
+    evaluators = build_evaluators(cfg,model,loaders,device,vae=vae,diffusion=diffusion,fid_metric=fid_metric,)
 
-
-    evaluators = build_evaluators(
-        cfg,
-        model,
-        loaders,
-        device,
-        vae=vae,
-        diffusion=diffusion,
-        fid_metric=fid_metric,
-    )
-
-
-    return DiTTrainer(
-        cfg,
-        model,
-        vae,
-        diffusion,
-        optimizer,
-        criterion,
-        train_loader,
-        accelerator,
-        device,
-        checkpoint_dir,
-        scheduler=scheduler,
-        ema=ema,
-        logger=logger,
-        evaluators=evaluators,
-    )
+    return DiTTrainer(cfg,model,vae,diffusion,optimizer,criterion,train_loader,accelerator,device,checkpoint_dir,scheduler=scheduler,ema=ema,logger=logger,evaluators=evaluators)
 
 TRAINER_BUILDERS = {
     "vae": build_vae_trainer,
