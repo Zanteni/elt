@@ -26,3 +26,6 @@ eval:
     enabled: true
     num_images: 8
 
+train:
+
+  resume: checkpoints/vae_50000.pt
