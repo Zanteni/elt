@@ -63,16 +63,12 @@ class DiffusionSamplingConfig:
     """
 
     enabled: bool = True
-
     num_images: int = 64
     batch_size: int = 64
-
     sampler: str = "ddim"
     num_steps: int = 50
-
     guidance_scale: float = 1.0
     eta: float = 0.0
-
     save_dir: str = "samples"
 
 # ------------------------------------------------------------
@@ -289,9 +285,7 @@ class VAESampler(Sampler):
 
             z = torch.randn(
                 self.cfg.random.num_images,
-                vae_cfg.latent_dim,
-                vae_cfg.grid_h,
-                vae_cfg.grid_w,
+                vae_cfg.grid_h * vae_cfg.grid_w, vae_cfg.latent_dim,  # (B, N, latent_dim)
                 device=self.device,
             )
 
@@ -351,27 +345,39 @@ class DiTSampler(Sampler):
 
     @torch.no_grad()
     def _generate_diffusion(self):
-
         self.model.eval()
         self.vae.eval()
 
-        latents = self.diffusion.sample(
-            self.model,
-            self.shape,
-            sampler=self.cfg.diffusion.sampler,
-            num_steps=self.cfg.diffusion.num_steps,
-            guidance_scale=self.cfg.diffusion.guidance_scale,
-            eta=self.cfg.diffusion.eta,
-            device=self.device,
-        )
+        num_images = self.cfg.diffusion.num_images
+        batch_size = self.cfg.diffusion.batch_size
 
-        images = self.vae.decoder(latents)
+        all_latents = []
+        all_images = []
+        generated = 0
+
+        while generated < num_images:
+            this_batch = min(batch_size, num_images - generated)
+            shape = (this_batch, *self.shape)  # self.shape is now just (N, latent_dim)
+
+            latents = self.diffusion.sample(
+                self.model, shape,
+                sampler=self.cfg.diffusion.sampler,
+                num_steps=self.cfg.diffusion.num_steps,
+                guidance_scale=self.cfg.diffusion.guidance_scale,
+                eta=self.cfg.diffusion.eta,
+                device=self.device,
+            )
+
+            images = self.vae.decoder(latents)
+
+            all_latents.append(latents.cpu())
+            all_images.append(images.cpu())
+            generated += this_batch
 
         return {
-            "latents": latents.cpu(),
-            "images": images.cpu(),
+            "latents": torch.cat(all_latents, dim=0),
+            "images": torch.cat(all_images, dim=0),
         }
-
 def build_sampler(
     cfg,
     model,
@@ -415,10 +421,7 @@ def build_sampler(
 
 
         shape = (
-            sampling_cfg.diffusion.batch_size,
-            cfg["model"]["dit"]["grid_h"]
-            *
-            cfg["model"]["dit"]["grid_w"],
+            cfg["model"]["dit"]["grid_h"] * cfg["model"]["dit"]["grid_w"],
             cfg["model"]["dit"]["latent_dim"],
         )
 
