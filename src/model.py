@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import  math
 from dataclasses import dataclass, field, asdict
-from typing import Optional
+from typing import Optional, Literal
 
 
 # ---------------------------------------------------------------------------
@@ -86,14 +86,11 @@ class PatchProj(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.proj(x)
     
-
-
 # ---------------------------------------------------------------------------
 # 3. Positional Encoding -- TWO variants (config-switched, not stacked)
 # ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
+
 # 3.1 Positional Encoding :sin/cos 
-# ---------------------------------------------------------------------------
 
 def build_1d_sincos_pos_embed(dim: int,positions: torch.Tensor,base: float = 10000.0):
     assert dim % 2 == 0, "dimension must be even."
@@ -126,10 +123,7 @@ def build_2d_sincos_pos_embed(d_model: int, grid_h: int, grid_w: int) -> torch.T
     pos_embed = torch.cat([row_embed,col_embed],dim=-1)
     return pos_embed
 
-# ---------------------------------------------------------------------------
 # 3.2 Positional Encoding :RoPE
-# ---------------------------------------------------------------------------
-
 
 def build_rope_cache(dim: int, seq_len: int, base: float = 10000.0):
     """1D RoPE primitive, called per-axis inside build_rope_cache_2d.
@@ -383,10 +377,7 @@ SUPPORTED_POSITION_ENCODINGS = {
 # GroupedHeadAttention (GQA): DEFERRED. Orthogonal to position-encoding choice;
 # adds a third variable to an already two-model comparison. Revisit post-baseline.
 
-
-# ---------------------------------------------------------------------------
 # 5. Transformer Components
-# ---------------------------------------------------------------------------
 
 class MLP(nn.Module):
     """
@@ -449,10 +440,7 @@ class TransformerBackbone(nn.Module):
 # ---------------------------------------------------------------------------
 # 6. VAE
 # ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
 # 6. VAE Config 
-# ---------------------------------------------------------------------------
 
 @dataclass
 class VAEConfig:
@@ -588,9 +576,7 @@ class VAE(nn.Module):
                 "logvar":logvar
         }
 
-# ---------------------------------------------------------------------------
 # VAE Variants
-# ---------------------------------------------------------------------------
 
 VAE_CONFIGS = {
 
@@ -636,9 +622,9 @@ VAE_CONFIGS = {
         "n_heads": 32,
     },
 }
-# ---------------------------------------------------------------------------
+
 # Build VAE
-# ---------------------------------------------------------------------------
+
 def build_vae(cfg):
 
     model_cfg = cfg["model"]
@@ -669,9 +655,7 @@ def build_vae(cfg):
 
 
 
-    # ==========================================
     # Variant based training config
-    # ==========================================
 
     else:
 
@@ -721,14 +705,11 @@ def build_vae(cfg):
 
 
     return VAE(config)
+
 # ============================================================
 # DiT Block utilities and helpers
 # ============================================================
-
-
-# ============================================================
 # Config
-# ============================================================
 
 @dataclass
 class DiTConfig:
@@ -748,61 +729,12 @@ class DiTConfig:
     # in_channels/out_channels intentionally NOT here either -- both
     # derived from latent_dim (+ learn_sigma) inside DiT.__init__.
 
+@dataclass
+class LoopedDiTConfig:
+    dit_config:DiTConfig
+    loop_steps :int=1
 
-# ============================================================
-# Factory
-# ============================================================
-
-def build_dit(cfg):
-
-    variant = cfg["model"]["variant"]
-
-    if variant not in DIT_CONFIGS:
-        raise ValueError(
-            f"Unknown DiT variant {variant}. "
-            f"Available: {list(DIT_CONFIGS.keys())}"
-        )
-
-    variant_cfg = DIT_CONFIGS[variant]
-
-    dit_cfg = DiTConfig(
-        latent_dim=cfg["model"]["dit"]["latent_dim"],
-
-        hidden_size=variant_cfg["hidden_size"],
-        depth=variant_cfg["depth"],
-        num_heads=variant_cfg["num_heads"],
-
-        mlp_ratio=cfg["model"]["dit"]["mlp_ratio"],
-
-        grid_h=cfg["model"]["dit"]["grid_h"],
-        grid_w=cfg["model"]["dit"]["grid_w"],
-
-        num_classes=cfg["model"]["dit"]["num_classes"],
-        cfg_dropout=cfg["model"]["dit"]["cfg_dropout"],
-        dropout=cfg["model"]["dit"]["dropout"],
-    )
-
-
-    attn_cfg = AttentionConfig(
-        d_model=dit_cfg.hidden_size,
-        n_heads=dit_cfg.num_heads,
-        attention_type=cfg["model"]["attention"]["type"],
-        dropout=dit_cfg.dropout,
-        bias=True,
-        grid_h=dit_cfg.grid_h,
-        grid_w=dit_cfg.grid_w,
-    )
-
-
-    return DiT(
-        dit_cfg,
-        attn_cfg,
-        num_timesteps=cfg["diffusion"]["timestep"],
-        learn_sigma=cfg["diffusion"]["learn_sigma"],
-    )
-# ============================================================
 # Components -- signatures only, fill in forward() one at a time
-# ============================================================
 
 class TimestepEmbedder(nn.Module):
     def __init__(self, cfg: DiTConfig,num_timesteps:int):
@@ -884,7 +816,18 @@ class DiTBlock(nn.Module):
         h = self.mlp(h)
         x = x + gate_mlp.unsqueeze(1)*h
         return x
-
+    
+class DitBackbone(nn.Module):
+    def __init__(self,cfg:DiTConfig,attn_cfg:AttentionConfig):
+        super().__init__()
+        self.cfg = cfg
+        self.blocks = nn.ModuleList(DiTBlock(cfg=cfg,attn_cfg=attn_cfg)
+                                 for _ in range(cfg.depth))
+    def forward(self,x:torch.Tensor,c:torch.Tensor)->torch.Tensor:
+        for blk in self.blocks:
+            x = blk(x,c)
+        return x
+    
 class FinalLayer(nn.Module):
     def __init__(self, cfg: DiTConfig, out_channels: int):
         super().__init__()
@@ -903,79 +846,204 @@ class FinalLayer(nn.Module):
 
         return x
 
-# ============================================================
 # DiT
-# ============================================================
 
-class DiT(nn.Module):
-    def __init__(self,cfg: DiTConfig,attn_cfg: AttentionConfig,num_timesteps: int,learn_sigma: bool):
+class DiTBase(nn.Module):
+    def __init__(self,cfg:DiTConfig,attn_cfg:AttentionConfig,num_timesteps:int,learn_sigma:bool):
         super().__init__()
-
-        self.cfg = cfg
+        self.config = cfg
         if attn_cfg.attention_type == "mha":
-
-            pos_embed = build_2d_sincos_pos_embed(
-                d_model=cfg.hidden_size,
-                grid_h=cfg.grid_h,
-                grid_w=cfg.grid_w
-            )
-
-            self.register_buffer(
-                "pos_embed",
-                pos_embed.unsqueeze(0),
-                persistent=False
-            )
-
+            self.pos_embed = build_2d_sincos_pos_embed(d_model=cfg.hidden_size,grid_h=cfg.grid_h,grid_w=cfg.grid_w)
+            self.register_buffer("pos_embed",self.pos_embed.unsqueeze(0),persistent=False)
         else:
             self.pos_embed = None
-
         self.num_timesteps = num_timesteps
         self.learn_sigma = learn_sigma
-
         self.in_channels = cfg.latent_dim
-        self.out_channels = cfg.latent_dim * (2 if learn_sigma else 1)
-
-        self.effective_num_classes = (cfg.num_classes if cfg.num_classes is not None else 1)
+        self.out_channels = cfg.latent_dim*(2 if learn_sigma  else 1)
+        self.effective_num_classes = cfg.num_classes if  cfg.num_classes is not None else 1
         self.x_embedder = nn.Linear(cfg.latent_dim,cfg.hidden_size)
         self.t_embedder = TimestepEmbedder(cfg,num_timesteps)
         self.y_embedder = LabelEmbedder(self.effective_num_classes,cfg.hidden_size,cfg.cfg_dropout)
-        self.blocks = nn.ModuleList(
-            [ DiTBlock(cfg,attn_cfg)for _ in range(cfg.depth)]
-            )
+        self.backbone = DitBackbone(cfg=cfg,attn_cfg=attn_cfg)
         self.final_layer = FinalLayer(cfg,self.out_channels)
-    def forward(self,z,t,y=None):
-        # z:
-        # (B,N,latent_dim)
 
-        x = self.x_embedder(z)
-        if self.pos_embed is not None:
-            x = x+self.pos_embed
-
+    def forward_backbone(self, x:torch.Tensor, c:torch.Tensor):
+        return self.backbone(x, c)
+    
+    def _build_condition(self,z,t,y):
         t_emb = self.t_embedder(t)
-
         if y is None:
             y = torch.full((z.shape[0],),self.effective_num_classes,device=z.device,dtype=torch.long)  #null token index
         y_emb = self.y_embedder(y)
-    
         c = t_emb + y_emb
-        for block in self.blocks:
-            x = block(x,c)
+        return c
+
+    def forward(self,z:torch.Tensor,t,y = None):
+        x = self.x_embedder(z)
+        if self.pos_embed is not None:
+            x = x + self.pos_embed
+        c = self._build_condition(z,t,y)
+        x = self.forward_backbone(x,c)
         x = self.final_layer(x,c)
         if self.learn_sigma:
-            eps, v = torch.chunk(x, 2, dim=-1)
-            return eps, v
-
+            eps,v = torch.chunk(x,2,dim=-1)
+            return eps,v
         return x
-# ============================================================
-# DiT Model Variants
-# ============================================================
+    
+class DiT(DiTBase):
+    pass 
 
+class LoopedDiT(DiTBase):
+    def __init__(self,cfg:LoopedDiTConfig,attn_cfg:AttentionConfig,num_timesteps:int,learn_sigma:bool):
+        super().__init__(cfg.dit_config,attn_cfg,num_timesteps,learn_sigma)
+        self.loop_cfg = cfg
+    def forward_looped(self,x:torch.Tensor,c:torch.Tensor,record:None|int|list[int]|Literal["all"] = None):
+            history = {}
+            if record is None:
+                for l in range(self.loop_cfg.loop_steps):
+                    x = self.backbone(x,c)
+            elif isinstance(record,int):
+                for  l in range(self.loop_cfg.loop_steps):
+                    x = self.backbone(x,c)
+                    if  l+1 == record:
+                        history[l+1] = x
+            elif isinstance(record,list):
+                for l in range(self.loop_cfg.loop_steps):
+                    x = self.backbone(x,c)
+                    if l+1 in record:
+                        history[l+1] = x
+            elif record == "all" :
+                for l in range(self.loop_cfg.loop_steps):
+                    x = self.backbone(x,c)
+                    history[l+1] = x
+            return x,history
+    
+    def forward(self,z,t,y=None,record =None):
+        x = self.x_embedder(z)
+        if self.pos_embed is not None:
+            x = x+self.pos_embed
+        c = self._build_condition(z,t,y)
+        x,history = self.forward_looped(x,c,record)
+        x = self.final_layer(x,c)
+        if self.learn_sigma:
+            eps,v=torch.chunk(x,2,dim=-1)
+            return eps,v,history
+        return x,history
+
+#  Dit Factory
+
+#1.Vanilla Dit
+
+def build_dit(cfg):
+
+    variant = cfg["model"]["variant"]
+
+    if variant not in DIT_CONFIGS:
+        raise ValueError(
+            f"Unknown DiT variant {variant}. "
+            f"Available: {list(DIT_CONFIGS.keys())}"
+        )
+
+    variant_cfg = DIT_CONFIGS[variant]
+
+    dit_cfg = DiTConfig(
+        latent_dim=cfg["model"]["dit"]["latent_dim"],
+
+        hidden_size=variant_cfg["hidden_size"],
+        depth=variant_cfg["depth"],
+        num_heads=variant_cfg["num_heads"],
+
+        mlp_ratio=cfg["model"]["dit"]["mlp_ratio"],
+
+        grid_h=cfg["model"]["dit"]["grid_h"],
+        grid_w=cfg["model"]["dit"]["grid_w"],
+
+        num_classes=cfg["model"]["dit"]["num_classes"],
+        cfg_dropout=cfg["model"]["dit"]["cfg_dropout"],
+        dropout=cfg["model"]["dit"]["dropout"],
+    )
+
+
+    attn_cfg = AttentionConfig(
+        d_model=dit_cfg.hidden_size,
+        n_heads=dit_cfg.num_heads,
+        attention_type=cfg["model"]["attention"]["type"],
+        dropout=dit_cfg.dropout,
+        bias=True,
+        grid_h=dit_cfg.grid_h,
+        grid_w=dit_cfg.grid_w,
+    )
+
+
+    return DiT(
+        dit_cfg,
+        attn_cfg,
+        num_timesteps=cfg["diffusion"]["timestep"],
+        learn_sigma=cfg["diffusion"]["learn_sigma"],
+    )
+
+# 2. Looped Dit
+
+def build_looped_dit(cfg):
+
+    variant = cfg["model"]["variant"]
+
+    if variant not in LOOPED_DIT_CONFIGS:
+        raise ValueError(
+            f"Unknown Looped DiT variant {variant}"
+        )
+
+    variant_cfg = LOOPED_DIT_CONFIGS[variant]
+
+
+    dit_cfg = DiTConfig(
+
+        latent_dim=cfg["model"]["dit"]["latent_dim"],
+
+        hidden_size=variant_cfg["hidden_size"],
+        depth=variant_cfg["depth"],
+        num_heads=variant_cfg["num_heads"],
+
+        mlp_ratio=cfg["model"]["dit"]["mlp_ratio"],
+
+        grid_h=cfg["model"]["dit"]["grid_h"],
+        grid_w=cfg["model"]["dit"]["grid_w"],
+
+        num_classes=cfg["model"]["dit"]["num_classes"],
+
+        cfg_dropout=cfg["model"]["dit"]["cfg_dropout"],
+        dropout=cfg["model"]["dit"]["dropout"],
+    )
+
+
+    loop_cfg = LoopedDiTConfig(
+        dit_config=dit_cfg,
+        loop_steps=variant_cfg["loop_steps"],
+    )
+
+
+    attn_cfg = AttentionConfig(
+        d_model=dit_cfg.hidden_size,
+        n_heads=dit_cfg.num_heads,
+        attention_type=cfg["model"]["attention"]["type"],
+        dropout=dit_cfg.dropout,
+        bias=True,
+        grid_h=dit_cfg.grid_h,
+        grid_w=dit_cfg.grid_w,
+    )
+
+
+    return LoopedDiT(
+        loop_cfg,
+        attn_cfg,
+        num_timesteps=cfg["diffusion"]["timestep"],
+        learn_sigma=cfg["diffusion"]["learn_sigma"],
+    )
+
+        
 DIT_CONFIGS = {
-
-    # --------------------------------------------------------
     # Small models (debugging / experiments)
-    # --------------------------------------------------------
-
     "DiT-Tiny": {
         "hidden_size": 192,
         "depth": 6,
@@ -989,9 +1057,7 @@ DIT_CONFIGS = {
     },
 
 
-    # --------------------------------------------------------
     # Original DiT paper scale
-    # --------------------------------------------------------
 
     "DiT-B": {
         "hidden_size": 768,
@@ -1012,9 +1078,7 @@ DIT_CONFIGS = {
     },
 
 
-    # --------------------------------------------------------
     # Large research scale
-    # --------------------------------------------------------
 
     "DiT-XXL": {
         "hidden_size": 1536,
@@ -1037,10 +1101,7 @@ DIT_CONFIGS = {
     },
 
 
-    # --------------------------------------------------------
     # Extreme scale (LLM-like)
-    # --------------------------------------------------------
-
     "DiT-3B": {
         "hidden_size": 2560,
         "depth": 48,
@@ -1055,11 +1116,97 @@ DIT_CONFIGS = {
     },
 
 }
+# Vanilla looped  Dit
+LOOPED_DIT_CONFIGS = {
+    # Small models
+    "Looped-DiT-Tiny": {
+        "hidden_size": 192,
+        "depth": 6,
+        "num_heads": 3,
+        "loop_steps": 4,
+    },
+
+
+    "Looped-DiT-S": {
+        "hidden_size": 384,
+        "depth": 12,
+        "num_heads": 6,
+        "loop_steps": 4,
+    },
+
+
+    # Original DiT paper scale
+    "Looped-DiT-B": {
+        "hidden_size": 768,
+        "depth": 12,
+        "num_heads": 12,
+        "loop_steps": 4,
+    },
+
+
+    "Looped-DiT-L": {
+        "hidden_size": 1024,
+        "depth": 24,
+        "num_heads": 16,
+        "loop_steps": 4,
+    },
+
+
+    "Looped-DiT-XL": {
+        "hidden_size": 1152,
+        "depth": 28,
+        "num_heads": 16,
+        "loop_steps": 4,
+    },
+
+
+    # Large research scale
+    "Looped-DiT-XXL": {
+        "hidden_size": 1536,
+        "depth": 48,
+        "num_heads": 24,
+        "loop_steps": 4,
+    },
+
+
+    "Looped-DiT-H": {
+        "hidden_size": 1792,
+        "depth": 48,
+        "num_heads": 28,
+        "loop_steps": 4,
+    },
+
+
+    "Looped-DiT-G": {
+        "hidden_size": 2048,
+        "depth": 48,
+        "num_heads": 32,
+        "loop_steps": 4,
+    },
+
+
+    # Extreme scale
+    "Looped-DiT-3B": {
+        "hidden_size": 2560,
+        "depth": 48,
+        "num_heads": 40,
+        "loop_steps": 4,
+    },
+
+
+    "Looped-DiT-7B": {
+        "hidden_size": 4096,
+        "depth": 32,
+        "num_heads": 32,
+        "loop_steps": 4,
+    },
+}
 # ---------------------------------------------------------------------------
 MODEL_BUILDERS = {
     "vae": build_vae,
     "dit": build_dit,
-    # "elt": build_elt,
+    "looped_dit": build_looped_dit,
+    #"elt": build_elt,
 }
 
 def build_model(cfg):
