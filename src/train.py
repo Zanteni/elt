@@ -433,9 +433,11 @@ def build_vae_trainer(cfg):
 
 
 class DiTTrainer(BaseTrainer):
-    def __init__(self, cfg, model,vae,diffusion, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler=None, ema=None, logger=None, evaluators=None):
+    def __init__(self, cfg, model,vae,diffusion, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir,repa = None,repa_encoder = None, scheduler=None, ema=None, logger=None, evaluators=None):
         super().__init__(cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler, ema, logger, evaluators)
         self.vae = vae
+        self.repa = repa
+        self.repa_encoder = repa_encoder
         self.diffusion = diffusion
 
     def setup(self):
@@ -449,6 +451,10 @@ class DiTTrainer(BaseTrainer):
                     )
         
         freeze_model(self.vae)
+        if self.repa_encoder is not None:
+            freeze_model(self.repa_encoder)
+            self.repa.to(self.device)
+            self.repa_encoder.eval()
         self.vae.to(self.device)
         self.vae.eval()
 
@@ -504,6 +510,16 @@ class DiTTrainer(BaseTrainer):
                 eps_pred,_ = self.diffusion._split_output(model_output["pred"])
                 losses = self.criterion(eps_pred,noise)
                 loss = losses["loss"]
+                if  self.repa is not None:
+                    dit_features = self.raw_model.forward_features(x_t,t,labels)
+                    if isinstance(dit_features,tuple):
+                        dit_features = dit_features[0]
+                    with torch.no_grad():
+                        target_features = self.repa_encoder(images)
+                    repa_loss = self.repa(dit_features,target_features)
+                    losses["repa"] = repa_loss
+                    loss = loss+self.cfg["repa"]["lambda"]*repa_loss
+
             self.optimizer.zero_grad(set_to_none=True)
             self.accelerator.backward(loss)
             self.accelerator.clip_grad_norm_(self.model.parameters(),self.cfg["train"]["grad_clip_norm"])
