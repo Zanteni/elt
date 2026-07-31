@@ -26,78 +26,43 @@ import wandb,os
 # ============================================================
 class BaseTrainer:
 
-    def __init__(
-        self,
-        cfg,
-        model,
-        optimizer,
-        criterion,
-        train_loader,
-        accelerator,
-        device,
-        checkpoint_dir,
-        scheduler=None,
-        ema=None,
-        logger=None,
-        evaluators=None,
-    ):
+    def __init__(self,cfg,model,optimizer,criterion,train_loader,accelerator,
+        device,checkpoint_dir,scheduler=None,ema=None,logger=None,evaluators=None):
 
         self.cfg = cfg
-
         self.model = model
-
         self.optimizer = optimizer
         self.criterion = criterion
-
         self.train_loader = train_loader
-
         self.accelerator = accelerator
         self.device = device
-
         self.scheduler = scheduler
         self.ema = ema
-
         self.logger = logger
-
-        self.evaluators = (
-            evaluators
-            if evaluators is not None
-            else {}
-        )
-
+        self.evaluators = (evaluators if evaluators is not None else {})
         self.checkpoint_dir = checkpoint_dir
 
-
-    # =====================================================
     # Interface
-    # =====================================================
-
     def setup(self):
         """
         Optional initialization before training.
         """
         pass
 
-
     def train(self):
         raise NotImplementedError
-
 
     def train_step(self, batch):
         raise NotImplementedError
 
-
     def validate(self):
         raise NotImplementedError
-
 
     def log(self):
         raise NotImplementedError
 
-
     def save_checkpoint(self):
         raise NotImplementedError
-
 
     def save_final(self):
         raise NotImplementedError
@@ -236,83 +201,43 @@ class VAETrainer(BaseTrainer):
 
         if not self.accelerator.is_main_process:
             return
+        path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_final.pt")
+        save_checkpoint(path=path, model=self.raw_model, optimizer=self.optimizer, ema=self.ema, epoch=self.total_steps, cfg=self.cfg)
 
-        path = os.path.join(
-
-            self.checkpoint_dir,
-
-            f"{self.cfg['model']['name']}_final.pt"
-
-        )
-
-        save_checkpoint(
-
-            path=path,
-
-            model=self.raw_model,
-
-            optimizer=self.optimizer,
-
-            ema=self.ema,
-
-            epoch=self.total_steps,
-            cfg=self.cfg
-            )   
     def train(self):
-
         self.setup()
-
         for step in range(self.start_step, self.total_steps):
-
             batch = next(self.train_iter)
-
             train_output = self.train_step(batch)
-
             self.log(step, train_output)
-
             self.validate(step)
-
             self.save_checkpoint(step)
-
         self.save_final_checkpoint()
 
-
-
 def build_vae_trainer(cfg):
-
     set_seed(cfg["seed"])
-
     checkpoint_dir = setup_environment(cfg)
-
     accelerator = build_accelerator(cfg)
-
     device = accelerator.device
     logger = build_logger(cfg,accelerator)
     train_loader = build_dataloader(cfg["data"], split="train")
     test_loader = build_dataloader(cfg["data"],split="test")
-
     loaders = {
         "train": train_loader,
         "test": test_loader,
     }
-
     model = build_model(cfg)
     criterion = build_loss(cfg)
     optimizer = build_optimizer(model, cfg)
     scheduler = build_scheduler(optimizer, cfg)  
     ema = EMA(model, decay=float(cfg["train"]["ema_decay"]))
-
     evaluators = build_evaluators(cfg, model, loaders,device)  # <- needs loaders/fid_metric, see below
-
     return VAETrainer(
         cfg, model, optimizer, criterion, train_loader, accelerator, device,
         checkpoint_dir, scheduler=scheduler, ema=ema,logger=logger, evaluators=evaluators,
     )
-#======================================================================================
+
 # DIT TRAINER
-#======================================================================================
-
-
 class DiTTrainer(BaseTrainer):
     def __init__(self, cfg, model,vae,diffusion, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir,repa = None,repa_encoder = None, scheduler=None, ema=None, logger=None, evaluators=None):
         super().__init__(cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler, ema, logger, evaluators)
@@ -338,14 +263,11 @@ class DiTTrainer(BaseTrainer):
             self.repa_encoder.eval()
         self.vae.to(self.device)
         self.vae.eval()
-
         self.diffusion.to(self.device)
         self.diffusion.eval()
-
         self.raw_model = self.accelerator.unwrap_model(self.model)
         if self.cfg["train"]["use_compile"]:
             self.model = torch.compile(self.model)
-        
         self.start_step  = maybe_resume(cfg=self.cfg,
                                          model=self.raw_model,
                                          optimizer=self.optimizer,
@@ -356,10 +278,9 @@ class DiTTrainer(BaseTrainer):
         self.train_iter = InfiniteDataLoader(self.train_loader)
         self.running_sums = {}
         self.running_count = 0
+
     def _parse_model_output(self, output):
-
         if isinstance(output, tuple):
-
             if len(output) == 3:
                 pred, _, history = output
                 return {
@@ -479,9 +400,7 @@ class DiTTrainer(BaseTrainer):
             self.save_checkpoint(step)
         self.save_final_checkpoint()
 
-#=============
 # DIT FACTORY
-#==============
 def build_dit_trainer(cfg):
     set_seed(cfg["seed"])
     checkpoint_dir = setup_environment(cfg)
@@ -500,7 +419,6 @@ def build_dit_trainer(cfg):
     criterion = build_loss(cfg)
     optimizer = build_optimizer(model,cfg)
     scheduler = build_scheduler(optimizer,cfg)
-
     ema = EMA(model,decay=float(cfg["train"]["ema_decay"]))
     # evaluation dependency
     fid_metric = build_fid_metric(cfg,device)
@@ -514,7 +432,6 @@ TRAINER_BUILDERS = {
     # "elt": build_elt_trainer,
 }
 
-
 def build_trainer(cfg):
     name = cfg["model"]["name"]
     if name not in TRAINER_BUILDERS:
@@ -524,10 +441,7 @@ def build_trainer(cfg):
 if __name__ == "__main__":
 
     import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Train an ELT model."
-    )
+    parser = argparse.ArgumentParser(description="Train an ELT model.")
 
     parser.add_argument(
         "stage_config",
