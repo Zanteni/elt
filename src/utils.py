@@ -277,7 +277,7 @@ def build_constant_schedule(optimizer, cfg):
 def build_linear_warmup_cosine_schedule(optimizer, cfg):
     warmup_steps = cfg["scheduler"].get("warmup_steps", 0)
     total_steps = cfg["train"]["total_steps"]  
-    min_lr_ratio = cfg["scheduler"].get("min_lr_ratio", 0.0)
+    min_lr_ratio = float(cfg["scheduler"].get("min_lr_ratio", 0.0))
 
     def lr_lambda(step):
         if step < warmup_steps:
