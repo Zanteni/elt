@@ -7,9 +7,9 @@ seed: 42
 
 data:
 
-  root: ./data
+  root: /kaggle/input/datasets/ayush1220/cifar10/cifar10
 
-  dataset: cifar10
+  dataset: imagefolder
 
   image_size: 32
 
@@ -51,7 +51,7 @@ scheduler:
 
   warmup_steps: 5000
 
-  min_lr_ratio: 0.0
+  min_lr_ratio: 1e-7
 
 
 
@@ -82,3 +82,9 @@ train:
   ema_decay: 0.9999
 
   deterministic: false
+
+repa:
+  enabled: true
+  lambda: 0.5
+  repr_dim: 512
+  encoder: dinov2
