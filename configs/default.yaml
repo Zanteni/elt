@@ -65,7 +65,7 @@ train:
 
   mixed_precision: fp16
 
-  use_compile: true
+  use_compile: false
 
   benchmark: true
 
