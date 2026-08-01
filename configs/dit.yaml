@@ -62,7 +62,7 @@ diffusion:
   learn_sigma: false
 
 sampling:
-  checkpoint: checkpoints/dit_final.pt
+  checkpoint: null
   save_dir: samples
 
   enabled: true
@@ -82,7 +82,7 @@ loss:
   diffusion: mse
 train:
 
-  resume: checkpoints/dit_195000.pt.pt
+  resume: null
 
 conditioning:
   enabled: true
