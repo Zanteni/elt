@@ -921,6 +921,8 @@ class LoopedDiT(DiTBase):
                 for l in range(self.loop_cfg.loop_steps):
                     x = self.backbone(x,c)
                     history[l+1] = x
+            else:
+                raise ValueError(f"Invalid record value: {record!r}, expected None, int, list[int], or 'all'")
             return x,history
     def forward_features(self,z,t,y=None,record = None):
         x = self.x_embedder(z)
@@ -930,15 +932,31 @@ class LoopedDiT(DiTBase):
         x,history = self.forward_looped(x,c,record)
         return x,c,history
     
-    def forward(self,z,t,y=None,record =None):
-        
-        x,c,history = self.forward_features(z,t,y,record)
-        x = self.final_layer(x,c)
+    def forward_elastic(self,z,t,y=None,inference_loops:int=2):
+        x = self.x_embedder(z)
+        if self.pos_embed is  not None:
+            x = x + self.pos_embed
+        c = self._build_condition(z,t,y)
+        for _ in range(inference_loops):
+            x = self.backbone(x,c)
+        x =  self.final_layer(x,c)
         if self.learn_sigma:
-            eps,v=torch.chunk(x,2,dim=-1)
-            return eps,v,history
-        return x,history
-
+            eps,v = torch.chunk(x,2,dim=-1)
+            return eps,v
+        return  x
+    
+    def forward(self, z, t, y=None, record=None):
+        x, c, history = self.forward_features(z, t, y, record)
+        x = self.final_layer(x, c)
+        if self.learn_sigma:
+            eps, v = torch.chunk(x, 2, dim=-1)
+            out = (eps, v)
+        else:
+            out = x
+        if record is None:
+            return out           
+        return out,c, history
+        
 # REPA
 class REPA(nn.Module):
     def  __init__(self,dit_dim:int,repr_dim:int):
