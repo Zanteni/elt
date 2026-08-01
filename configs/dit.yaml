@@ -86,4 +86,4 @@ train:
   resume: null
 
 conditioning:
-  enabled: false
+  enabled: ture
