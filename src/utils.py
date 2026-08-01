@@ -877,3 +877,41 @@ def sample_labels(num_classes, num_images, device, mode="random"):
     if mode == "cycle":
         return (torch.arange(num_images, device=device) % num_classes)
     return torch.randint(0, num_classes, (num_images,), device=device)
+
+class ELTSchedule:
+    def __init__(self, cfg, total_steps):
+        self.name = cfg["schedule"]["name"]
+        self.lambda_max = cfg["lambda"]
+        if self.name not in ("constant", "linear_warmup"):
+            raise ValueError(f"Unknown ELT schedule '{self.name}', expected 'constant' or 'linear_warmup'")
+        if self.name == "linear_warmup":
+            self.warmup_steps = int(cfg["schedule"]["warmup_ratio"] * total_steps)
+            
+    def __call__(self, step):
+        if self.name == "constant":
+            return self.lambda_max
+        elif self.name == "linear_warmup":
+            if step >= self.warmup_steps:
+                return self.lambda_max
+            return self.lambda_max * step / self.warmup_steps
+        else:
+            raise ValueError(f"Unknown ELT schedule '{self.name}', expected 'constant' or 'linear_warmup'")
+        
+def sample_intermediate_loops(cfg, loop_steps):
+    strategy = cfg["elt"]["strategy"]
+    lmax = loop_steps  
+
+    if strategy == "fixed":
+        return cfg["elt"]["intermediate_loops"] + [lmax]
+
+    elif strategy == "random":
+        l_min = cfg["elt"]["l_min"]
+        if lmax - 1 < l_min:
+            raise ValueError(
+                f"l_min ({l_min}) leaves no valid intermediate range for loop_steps={lmax}"
+            )
+        lint = random.randint(l_min, lmax - 1)
+        return [lint, lmax]
+
+    else:
+        raise ValueError(f"Unknown ELT strategy: {strategy}")
