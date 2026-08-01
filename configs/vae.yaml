@@ -28,4 +28,4 @@ eval:
 
 train:
 
-  resume: checkpoints/vae_50000.pt
+  resume: checkpoints/vae_95000.pt
