@@ -83,7 +83,7 @@ loss:
   diffusion: mse
 train:
 
-  resume: null
+  resume: checkpoins/dit_25000.pt
 
 conditioning:
   enabled: true
