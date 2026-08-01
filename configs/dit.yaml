@@ -29,7 +29,7 @@ model:
 
 vae:
 
-  checkpoint: /kaggle/input/datasets/zanteniwajdi/elt-vae-100000-checkpoint/vae_100000.pt
+  checkpoint: checkpoints/vae_100000.pt
 elt:
   enabled: false
 # ============================================================

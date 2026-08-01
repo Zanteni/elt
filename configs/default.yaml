@@ -7,9 +7,9 @@ seed: 42
 
 data:
 
-  root: /kaggle/input/datasets/ayush1220/cifar10/cifar10
+  root: ./data
 
-  dataset: imagefolder
+  dataset: cifar10
 
   image_size: 32
 
@@ -63,9 +63,9 @@ train:
 
   total_steps: 200000
 
-  mixed_precision: fp16
+  mixed_precision: bf16
 
-  use_compile: false
+  use_compile: true
 
   benchmark: true
 
