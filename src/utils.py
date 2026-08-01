@@ -903,10 +903,9 @@ def sample_intermediate_loops(cfg, loop_steps):
     lmax = loop_steps  
 
     if strategy == "fixed":
-        return cfg["elt"]["intermediate_loops"] + [lmax]
-
+        return [int(x) for x in cfg["elt"]["intermediate_loops"]] + [lmax]
     elif strategy == "random":
-        l_min = cfg["elt"]["l_min"]
+        l_min = int(cfg["elt"]["l_min"])
         if lmax - 1 < l_min:
             raise ValueError(
                 f"l_min ({l_min}) leaves no valid intermediate range for loop_steps={lmax}"
