@@ -4,6 +4,7 @@ import yaml
 import os
 import numpy as np
 import torch
+import torch.nn.functional as F
 import wandb
 import math
 from  model  import build_model
@@ -886,7 +887,7 @@ class ELTSchedule:
             raise ValueError(f"Unknown ELT schedule '{self.name}', expected 'constant' or 'linear_warmup'")
         if self.name == "linear_warmup":
             self.warmup_steps = int(cfg["schedule"]["warmup_ratio"] * total_steps)
-            
+
     def __call__(self, step):
         if self.name == "constant":
             return self.lambda_max
@@ -915,3 +916,24 @@ def sample_intermediate_loops(cfg, loop_steps):
 
     else:
         raise ValueError(f"Unknown ELT strategy: {strategy}")
+
+def build_distillation(cfg):
+
+    if not cfg["elt"]["enabled"]:
+        return None
+
+    name = cfg["elt"]["distillation"].get("type", None)
+
+    if name is None:
+        return None
+
+    if name == "mse":
+        return F.mse_loss
+
+    elif name == "smooth_l1":
+        return F.smooth_l1_loss
+
+    else:
+        raise ValueError(
+            f"Unknown distillation loss: {name}"
+        )
