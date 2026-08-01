@@ -9,6 +9,9 @@ from utils import (maybe_resume,
                    load_config,
                    freeze_model,
                    build_vae_from_checkpoint,
+                   ELTSchedule,
+                   sample_intermediate_loops,
+                   build_distillation,
                    denormalize,
                    EMA
                    )
@@ -239,12 +242,24 @@ def build_vae_trainer(cfg):
 
 # DIT TRAINER
 class DiTTrainer(BaseTrainer):
-    def __init__(self, cfg, model,vae,diffusion, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir,repa = None,repa_encoder = None, scheduler=None, ema=None, logger=None, evaluators=None):
+    def __init__(self, cfg, model,vae,diffusion, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir,repa = None,repa_encoder = None, scheduler=None, ema=None, logger=None, evaluators=None,distill=None):
         super().__init__(cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler, ema, logger, evaluators)
+
+        self.use_elt = cfg["elt"]["enabled"]
+
+        if self.use_elt and cfg["model"]["name"] != "looped_dit":
+            raise ValueError(
+                f"elt.enabled=True requires model.name='looped_dit', "
+                f"got '{cfg['model']['name']}'"
+            )
         self.vae = vae
         self.repa = repa
         self.repa_encoder = repa_encoder
         self.diffusion = diffusion
+        self.distill = distill
+        self.distill_scheduler = None
+        if cfg["elt"]["enabled"]:
+            self.distill_scheduler = ELTSchedule(cfg["elt"]["distillation"],cfg["train"]["total_steps"])
 
     def setup(self):
         self.model, self.optimizer,self.scheduler, self.train_loader = (
@@ -282,9 +297,10 @@ class DiTTrainer(BaseTrainer):
     def _parse_model_output(self, output):
         if isinstance(output, tuple):
             if len(output) == 3:
-                pred, _, history = output
+                pred, c, history = output
                 return {
                     "pred": pred,
+                    "c":c,
                     "history": history
                 }
 
@@ -298,7 +314,7 @@ class DiTTrainer(BaseTrainer):
             "pred": output,
             "history": None
         }
-    def train_step(self,batch):
+    def train_step(self,batch,step = None):
         images = extract_images(batch)
         labels = extract_labels(batch) if self.cfg["conditioning"]["enabled"] else None
         with torch.no_grad():
@@ -307,11 +323,30 @@ class DiTTrainer(BaseTrainer):
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
                 x_t,t,noise = self.diffusion(latents)
-                output = self.model(x_t,t,labels)
+                elt_loss = None
+                if  self.use_elt:
+                    record = sample_intermediate_loops(self.cfg, self.raw_model.loop_cfg.loop_steps)
+                    output = self.model(x_t,t,labels,record=record)
+                else:
+                    output = self.model(x_t,t,labels)
+
                 model_output = self._parse_model_output(output)
                 eps_pred,_ = self.diffusion._split_output(model_output["pred"])
                 losses = self.criterion(eps_pred,noise)
                 loss = losses["loss"]
+                if self.use_elt and self.distill is not None:
+                    history = model_output["history"]
+                    history_pred = {k: self.raw_model.final_layer(v, model_output["c"])for k,v in history.items()}
+                    lmax = max(history_pred.keys())
+                    teacher = history_pred[lmax].detach()
+                    distill_loss = torch.tensor(0.0,device=self.device)
+                    for k, student in history_pred.items():
+                        if k == lmax:
+                            continue
+                        distill_loss += self.distill(student,teacher)
+                    elt_lambda = self.distill_scheduler(step)
+                    losses["elt"]=distill_loss
+                    loss = loss + elt_lambda * distill_loss
                 if  self.repa is not None:
                     dit_features = self.raw_model.forward_features(x_t,t,labels)
                     if isinstance(dit_features,tuple):
@@ -393,7 +428,7 @@ class DiTTrainer(BaseTrainer):
         self.setup()
         for step in range(self.start_step,self.total_steps):
             batch = next(self.train_iter)
-            train_output = self.train_step(batch)
+            train_output = self.train_step(batch,step)
             self.log(step,train_output)
             self.validate(step)
             self.maybe_sample(step)
@@ -402,6 +437,10 @@ class DiTTrainer(BaseTrainer):
 
 # DIT FACTORY
 def build_dit_trainer(cfg):
+    if cfg["elt"]["enabled"] and cfg["model"]["name"] != "looped_dit":
+        raise ValueError(
+            "ELT requires model.name='looped_dit'"
+        )
     set_seed(cfg["seed"])
     checkpoint_dir = setup_environment(cfg)
     accelerator = build_accelerator(cfg)
@@ -423,13 +462,14 @@ def build_dit_trainer(cfg):
     # evaluation dependency
     fid_metric = build_fid_metric(cfg,device)
     evaluators = build_evaluators(cfg,model,loaders,device,vae=vae,diffusion=diffusion,fid_metric=fid_metric,)
+    distill = build_distillation(cfg)
 
-    return DiTTrainer(cfg,model,vae,diffusion,optimizer,criterion,train_loader,accelerator,device,checkpoint_dir,scheduler=scheduler,ema=ema,logger=logger,evaluators=evaluators)
+
+    return DiTTrainer(cfg,model,vae,diffusion,optimizer,criterion,train_loader,accelerator,device,checkpoint_dir,scheduler=scheduler,ema=ema,logger=logger,evaluators=evaluators,distill=distill)
 
 TRAINER_BUILDERS = {
     "vae": build_vae_trainer,
     "dit": build_dit_trainer,
-    # "elt": build_elt_trainer,
 }
 
 def build_trainer(cfg):
