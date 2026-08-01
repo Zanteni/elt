@@ -14,7 +14,7 @@ model:
     grid_h: 8
     grid_w: 8
 
-    num_classes: null
+    num_classes: 10
 
     cfg_dropout: 0.0
 
