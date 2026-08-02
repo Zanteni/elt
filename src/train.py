@@ -136,7 +136,7 @@ class VAETrainer(BaseTrainer):
                 self.train_loader,
                 )
             )
-        self.scaling_factor = compute_scaling_factor(self.raw_model, self.cfg, split="train", device=self.device)
+        self.scaling_factor = compute_scaling_factor(self.model, self.cfg, split="train", device=self.device)
         
         self.raw_model = self.accelerator.unwrap_model(self.model)
 
