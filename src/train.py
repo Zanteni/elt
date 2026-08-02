@@ -327,7 +327,7 @@ class DiTTrainer(BaseTrainer):
         labels = extract_labels(batch) if self.cfg["conditioning"]["enabled"] else None
         with torch.no_grad():
             mu, logvar = self.vae.encoder(images)
-            latents = mu*self.scaling_factor
+            latents = mu/(self.scaling_factor+1e-7)
             print(latents.std().item())
 
         with self.accelerator.accumulate(self.model):
