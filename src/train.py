@@ -328,8 +328,8 @@ class DiTTrainer(BaseTrainer):
         with torch.no_grad():
             from data import compute_scaling_factor
 
-        fresh = compute_scaling_factor(self.vae, self.cfg, split="train", device=self.device)
-        print(f"stored scaling_factor: {self.scaling_factor}   freshly computed: {fresh}")
+            fresh = compute_scaling_factor(self.vae, self.cfg, split="train", device=self.device)
+            print(f"stored scaling_factor: {self.scaling_factor}   freshly computed: {fresh}")
             mu, logvar = self.vae.encoder(images)
             print("scaling_factor in use:", self.scaling_factor)
             latents = mu*self.scaling_factor
