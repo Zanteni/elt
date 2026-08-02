@@ -61,7 +61,7 @@ scheduler:
 
 train:
 
-  total_steps: 200000
+  total_steps: 100000
 
   mixed_precision: bf16
 

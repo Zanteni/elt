@@ -15,7 +15,7 @@ model:
     bias: true
 
 loss:
-  beta: 1.0e-6
+  beta: 1.0e-4
   lpips_weight: 0.1
   reconstruction: mse
 
@@ -28,4 +28,4 @@ eval:
 
 train:
 
-  resume: checkpoints/vae_95000.pt
+  resume: null
