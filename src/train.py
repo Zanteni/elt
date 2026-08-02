@@ -323,6 +323,16 @@ class DiTTrainer(BaseTrainer):
             "history": None
         }
     def train_step(self,batch,step = None):
+        ckpt = torch.load("checkpoints/vae_final.pt", map_location="cpu")
+        vae = build_model(ckpt["config"])
+        vae.load_state_dict(ckpt["model"])
+        vae.eval()
+
+        fresh_factor = compute_scaling_factor(vae, cfg, split="train", device="cpu")
+        print(f"old: {ckpt.get('scaling_factor')}   new: {fresh_factor}")
+
+        ckpt["scaling_factor"] = fresh_factor
+        torch.save(ckpt, "checkpoints/vae_final.pt")
         images = extract_images(batch)
         labels = extract_labels(batch) if self.cfg["conditioning"]["enabled"] else None
         with torch.no_grad():
