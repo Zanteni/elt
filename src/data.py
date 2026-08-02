@@ -266,6 +266,5 @@ def compute_scaling_factor(vae, cfg, split="train", device=None):
             latent_list.append(mu.cpu())
     finally:
         vae.encoder.train(was_training)
-
     latents = torch.cat(latent_list, dim=0)
     return (1.0 / latents.std()).item()
