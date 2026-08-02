@@ -29,7 +29,7 @@ model:
 
 vae:
 
-  checkpoint: checkpoints/vae_100000.pt
+  checkpoint: checkpoints/vae_final.pt
 elt:
   enabled: false
 # ============================================================
@@ -52,7 +52,7 @@ diffusion:
 
   schedule: cosine
 
-  timestep: 1000
+  timestep: 200
 
   beta_start: 1.0e-4
 
@@ -83,7 +83,7 @@ loss:
   diffusion: mse
 train:
 
-  resume: checkpoints/dit_20000.pt
+  resume: null
 
 conditioning:
   enabled: true
