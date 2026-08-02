@@ -136,6 +136,7 @@ class VAETrainer(BaseTrainer):
                 self.train_loader,
                 )
             )
+        self.scaling_factor = compute_scaling_factor(self.raw_model, self.cfg, split="train", device=self.device)
         
         self.raw_model = self.accelerator.unwrap_model(self.model)
 
@@ -198,16 +199,14 @@ class VAETrainer(BaseTrainer):
             return
         if not self.accelerator.is_main_process:
             return
-        scaling_factor = compute_scaling_factor(self.raw_model, self.cfg, split="train", device=self.device)
-
         path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_{step}.pt")
-        save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,ema=self.ema,epoch=step,cfg=self.cfg,scaling_factor=scaling_factor)
+        save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,ema=self.ema,epoch=step,cfg=self.cfg,scaling_factor=self.scaling_factor)
     def save_final_checkpoint(self):
 
         if not self.accelerator.is_main_process:
             return
         path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_final.pt")
-        save_checkpoint(path=path, model=self.raw_model, optimizer=self.optimizer, ema=self.ema, epoch=self.total_steps, cfg=self.cfg)
+        save_checkpoint(path=path, model=self.raw_model, optimizer=self.optimizer, ema=self.ema, epoch=self.total_steps, cfg=self.cfg,scaling_factor=self.scaling_factor)
 
     def train(self):
         self.setup()
