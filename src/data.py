@@ -246,13 +246,26 @@ def build_latent_cache(encoder, cfg, split="train", device=None):
     return latents
 # data.py, directly below build_latent_cache
 
-def compute_scaling_factor(vae, cfg, split, device):
-    """
-    Scaling factor to normalize VAE latents to ~unit variance before
-    diffusion training, matching the convention used in the real DiT
-    (mul_(0.18215) at train time, divide before decode) -- our own VAE's
-    constant is computed here rather than borrowed, since it depends on
-    our own latent space's actual scale, not Stable Diffusion's.
-    """
-    latents = build_latent_cache(vae.encoder, cfg["data"], split=split, device=device)
+@torch.no_grad()
+def compute_scaling_factor(vae, cfg, split="train", device=None):
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    image_loader = build_dataloader(cfg["data"], split=split)
+
+    was_training = vae.encoder.training
+    vae.encoder.eval()
+    vae.encoder.to(device)
+
+    latent_list = []
+
+    try:
+        for batch in image_loader:
+            images = extract_images(batch).to(device, non_blocking=True)
+            mu, _ = vae.encoder(images)
+            latent_list.append(mu.cpu())
+    finally:
+        vae.encoder.train(was_training)
+
+    latents = torch.cat(latent_list, dim=0)
     return (1.0 / latents.std()).item()
