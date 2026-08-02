@@ -327,6 +327,7 @@ class DiTTrainer(BaseTrainer):
         labels = extract_labels(batch) if self.cfg["conditioning"]["enabled"] else None
         with torch.no_grad():
             mu, logvar = self.vae.encoder(images)
+            print("scaling_factor in use:", self.scaling_factor)
             latents = mu*self.scaling_factor
             print(latents.std().item())
 
