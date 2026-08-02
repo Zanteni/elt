@@ -314,6 +314,7 @@ class DiTSampler(Sampler):
         model,
         vae,
         diffusion,
+        scaling_factor,
         device,
         shape,
     ):
@@ -322,11 +323,11 @@ class DiTSampler(Sampler):
             cfg,
             device
         )
-
         self.model = model
         self.vae = vae
         self.diffusion = diffusion
         self.shape = shape
+        self.scaling_factor = scaling_factor
 
 
     @torch.no_grad()
@@ -368,7 +369,7 @@ class DiTSampler(Sampler):
                 device=self.device,
             )
 
-            images = self.vae.decoder(latents)
+            images = self.vae.decoder(latents/(self.scaling_factor+1e-7))
 
             all_latents.append(latents.cpu())
             all_images.append(images.cpu())

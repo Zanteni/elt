@@ -20,7 +20,7 @@ from model import build_model
 from  diffusion  import  build_diffusion
 from sample import build_sampler
 from losses import build_loss
-from  data import build_dataloader,extract_labels
+from  data import build_dataloader,extract_labels,compute_scaling_factor
 import  torch
 import wandb,os
 
@@ -198,8 +198,10 @@ class VAETrainer(BaseTrainer):
             return
         if not self.accelerator.is_main_process:
             return
+        scaling_factor = compute_scaling_factor(self.raw_model, self.cfg, split="train", device=self.device)
+
         path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_{step}.pt")
-        save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,ema=self.ema,epoch=step,cfg=self.cfg)
+        save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,ema=self.ema,epoch=step,cfg=self.cfg,scaling_factor=scaling_factor)
     def save_final_checkpoint(self):
 
         if not self.accelerator.is_main_process:
@@ -242,7 +244,7 @@ def build_vae_trainer(cfg):
 
 # DIT TRAINER
 class DiTTrainer(BaseTrainer):
-    def __init__(self, cfg, model,vae,diffusion, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir,repa = None,repa_encoder = None, scheduler=None, ema=None, logger=None, evaluators=None,distill=None):
+    def __init__(self, cfg, model,vae,diffusion, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir,scaling_factor,repa = None,repa_encoder = None, scheduler=None, ema=None, logger=None, evaluators=None,distill=None):
         super().__init__(cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler, ema, logger, evaluators)
 
         self.use_elt = cfg["elt"]["enabled"]
@@ -252,7 +254,14 @@ class DiTTrainer(BaseTrainer):
                 f"elt.enabled=True requires model.name='looped_dit', "
                 f"got '{cfg['model']['name']}'"
             )
+        if self.use_elt and distill is None:
+            raise ValueError(
+                "elt.enabled=True requires a distill loss function to be provided "
+                "(e.g. distill=F.mse_loss) -- use elt.enabled=False for a looped "
+                "model with no distillation instead of passing distill=None"
+            )
         self.vae = vae
+        self.scaling_factor = scaling_factor
         self.repa = repa
         self.repa_encoder = repa_encoder
         self.diffusion = diffusion
@@ -319,7 +328,7 @@ class DiTTrainer(BaseTrainer):
         labels = extract_labels(batch) if self.cfg["conditioning"]["enabled"] else None
         with torch.no_grad():
             mu, logvar = self.vae.encoder(images)
-            latents = mu
+            latents = mu*self.scaling_factor
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
                 x_t,t,noise = self.diffusion(latents)
@@ -452,7 +461,7 @@ def build_dit_trainer(cfg):
     loaders = {"train": train_loader,"test": test_loader,}
     # models
     model = build_model(cfg)
-    vae = build_vae_from_checkpoint(cfg["vae"]["checkpoint"],device=device,freeze=True)
+    vae,scaling_factor  = build_vae_from_checkpoint(cfg["vae"]["checkpoint"],device=device,freeze=True,return_scaling_factor=True)
     diffusion = build_diffusion(cfg)
     # training objects
     criterion = build_loss(cfg)

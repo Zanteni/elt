@@ -695,7 +695,8 @@ def save_checkpoint(
     scaler=None,
     ema=None,
     epoch=0,
-    cfg=None
+    cfg=None,
+    scaling_factor = None
 ):
 
     checkpoint = {
@@ -717,6 +718,8 @@ def save_checkpoint(
 
     if cfg is not None:
         checkpoint["config"] = cfg
+    if scaling_factor is not None:
+        checkpoint["scaling_factor"] = scaling_factor
 
     torch.save(
         checkpoint,
@@ -838,31 +841,26 @@ class InfiniteDataLoader:
                 self.iterator
             )
 
-def build_vae_from_checkpoint(
-    path,
-    device="cpu",
-    freeze=True
-):
-
-    checkpoint = torch.load(
-        path,
-        map_location=device
-    )
-
+def build_vae_from_checkpoint(path, device="cpu", freeze=True, return_scaling_factor=False):
+    checkpoint = torch.load(path, map_location=device)
     cfg = checkpoint["config"]
 
     vae = build_model(cfg)
+    vae.load_state_dict(checkpoint["model"])  
 
-    load_checkpoint(
-        path,
-        vae,
-        device=device
-    )
-    vae.to(device) 
+    vae.to(device)
     vae.eval()
 
     if freeze:
         freeze_model(vae)
+
+    if return_scaling_factor:
+        if "scaling_factor" not in checkpoint:
+            raise ValueError(
+                f"Checkpoint at path {path} has no scaling_factor -- patch it "
+                f"with compute_scaling_factor() before using it for DiT training."
+            )
+        return vae, checkpoint["scaling_factor"]
 
     return vae
 

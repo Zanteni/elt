@@ -244,3 +244,15 @@ def build_latent_cache(encoder, cfg, split="train", device=None):
     torch.save(latents, save_path)
 
     return latents
+# data.py, directly below build_latent_cache
+
+def compute_scaling_factor(vae, cfg, split, device):
+    """
+    Scaling factor to normalize VAE latents to ~unit variance before
+    diffusion training, matching the convention used in the real DiT
+    (mul_(0.18215) at train time, divide before decode) -- our own VAE's
+    constant is computed here rather than borrowed, since it depends on
+    our own latent space's actual scale, not Stable Diffusion's.
+    """
+    latents = build_latent_cache(vae.encoder, cfg["data"], split=split, device=device)
+    return (1.0 / latents.std()).item()

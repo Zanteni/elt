@@ -263,27 +263,18 @@ class FIDEvaluator(Evaluator):
         model,
         vae,
         diffusion,
+        scaling_factor,
         device,
     ):
 
-        super().__init__(
-            cfg,
-            device
-        )
-
+        super().__init__(cfg,device)
 
         self.metric = fid_metric
-
         self.real_loader = real_loader
-
         self.model = model
-
         self.vae = vae
-
+        self.scaling_factor = scaling_factor
         self.diffusion = diffusion
-
-
-
 
     @torch.no_grad()
     def evaluate(self):
@@ -292,62 +283,25 @@ class FIDEvaluator(Evaluator):
         try:
             self.metric.reset()
 
-
-
-            # ----------------------------------
             # Real images
-            # ----------------------------------
-
             for batch in self.real_loader:
-
-
                 images = extract_images(batch)
-
-
-                images = images.to(
-                    self.device
-                )
-
+                images = images.to(self.device)
 
                 # [-1,1] -> [0,1]
+                images = (images + 1) / 2
+                self.metric.update(images,real=True)
 
-                images = (
-                    images + 1
-                ) / 2
-
-
-
-                self.metric.update(
-                    images,
-                    real=True
-                )
-
-
-
-
-            # ----------------------------------
             # Generated images
-            # ----------------------------------
-
             generated = 0
-
-
-
             while generated < self.cfg.fid_num_samples:
-
-
-                batch_size = min(
-
-                    self.cfg.sample_batch_size,
-
+                batch_size = min(self.cfg.sample_batch_size,
                     self.cfg.fid_num_samples
                     -
                     generated
                 )
 
-
                 # conditional label if needed
-
                 y = sample_labels(self.model.effective_num_classes, batch_size, self.device, mode="random")
 
 
@@ -363,34 +317,13 @@ class FIDEvaluator(Evaluator):
                     device=self.device,
                 )
 
-                images = self.vae.decoder(z)
-
-
-
-                images = (
-                    images + 1
-                ) / 2
-
-
-
-                self.metric.update(
-                    images,
-                    real=False
-                )
-
-
-
+                images = self.vae.decoder(z/(self.scaling_factor+1e-7))
+                images = (images + 1) / 2
+                self.metric.update(images,real=False)
                 generated += batch_size
-
-
-
-
             fid = self.metric.compute().item()
         finally:
             self.model.train(was_training)
-
-
-
         return {
 
             "metrics":
@@ -400,7 +333,6 @@ class FIDEvaluator(Evaluator):
             }
 
         }
-
 
 # ============================================================
 # VAE Evaluator Builder
