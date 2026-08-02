@@ -387,7 +387,7 @@ class DiTTrainer(BaseTrainer):
         self.run_evaluation(step)
                 
     def sample(self):
-        sampler = build_sampler(cfg=self.cfg,model=self.raw_model,device=self.device,vae=self.vae,diffusion=self.diffusion)
+        sampler = build_sampler(cfg=self.cfg,model=self.raw_model,device=self.device,vae=self.vae,diffusion=self.diffusion,scaling_factor=self.scaling_factor)
         outputs = sampler.generate()
         return outputs["diffusion"]["images"]
 

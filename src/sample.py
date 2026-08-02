@@ -385,6 +385,7 @@ def build_sampler(
     device,
     vae=None,
     diffusion=None,
+    scaling_factor=None,
     dataloader=None,
 ):
 
@@ -432,6 +433,7 @@ def build_sampler(
             model=model,
             vae=vae,
             diffusion=diffusion,
+            scaling_factor=scaling_factor,
             device=device,
             shape=shape,
         )
