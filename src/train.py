@@ -469,7 +469,7 @@ def build_dit_trainer(cfg):
     ema = EMA(model,decay=float(cfg["train"]["ema_decay"]))
     # evaluation dependency
     fid_metric = build_fid_metric(cfg,device)
-    evaluators = build_evaluators(cfg,model,loaders,device,vae=vae,diffusion=diffusion,fid_metric=fid_metric,)
+    evaluators = build_evaluators(cfg,model,loaders,device,vae=vae,diffusion=diffusion,fid_metric=fid_metric,scaling_factor=scaling_factor)
     distill = build_distillation(cfg)
 
 

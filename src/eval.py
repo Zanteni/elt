@@ -379,6 +379,7 @@ def build_dit_evaluators(
     model,
     vae,
     diffusion,
+    scaling_factor,
     loaders,
     fid_metric,
     device,
@@ -401,6 +402,8 @@ def build_dit_evaluators(
             vae=vae,
 
             diffusion=diffusion,
+
+            scaling_factor=scaling_factor,
 
             device=device,
 
@@ -454,6 +457,7 @@ def build_evaluators(cfg, model, loaders, device, **kwargs):
     fid_metric=kwargs.get("fid_metric"),
     vae=kwargs["vae"],
     diffusion=kwargs["diffusion"],
+    scaling_factor=kwargs["scaling_factor"],
     device=device,
 )
 
