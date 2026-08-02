@@ -323,6 +323,9 @@ class DiTTrainer(BaseTrainer):
             "history": None
         }
     def train_step(self,batch,step = None):
+        from data import compute_scaling_factor
+        from model import build_model
+        import torch
         ckpt = torch.load("checkpoints/vae_final.pt", map_location="cpu")
         vae = build_model(ckpt["config"])
         vae.load_state_dict(ckpt["model"])
