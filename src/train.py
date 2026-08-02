@@ -473,7 +473,7 @@ def build_dit_trainer(cfg):
     distill = build_distillation(cfg)
 
 
-    return DiTTrainer(cfg,model,vae,diffusion,optimizer,criterion,train_loader,accelerator,device,checkpoint_dir,scheduler=scheduler,ema=ema,logger=logger,evaluators=evaluators,distill=distill)
+    return DiTTrainer(cfg,model,vae,diffusion,optimizer,criterion,train_loader,accelerator,device,checkpoint_dir,scheduler=scheduler,ema=ema,logger=logger,evaluators=evaluators,distill=distill,scaling_factor=scaling_factor)
 
 TRAINER_BUILDERS = {
     "vae": build_vae_trainer,
