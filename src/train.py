@@ -12,6 +12,7 @@ from utils import (maybe_resume,
                    ELTSchedule,
                    sample_intermediate_loops,
                    build_distillation,
+                   get_next_run_number,
                    denormalize,
                    EMA
                    )
