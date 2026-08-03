@@ -267,6 +267,7 @@ def build_optimizer(model, cfg):
 
 
     return optimizer
+
 # ============================================================================
 # Scheduler
 # ============================================================================
@@ -308,67 +309,33 @@ def maybe_resume(
     cfg,
     model,
     optimizer=None,
+    scheduler=None,
     ema=None,
     device="cpu"
 ):
-
-    resume = cfg["train"].get(
-        "resume",
-        None
-    )
-
+    resume = cfg["train"].get("resume", None)
 
     if resume is None:
-
         return 0
 
-
-
     if resume == "latest":
-
-        checkpoint_dir = cfg["train"].get(
-            "checkpoints_dir",
-            "checkpoints"
-        )
-
-
-        resume = get_latest_checkpoint(
-            checkpoint_dir
-        )
-
-
+        checkpoint_dir = cfg["train"].get("checkpoints_dir", "checkpoints")
+        resume = get_latest_checkpoint(checkpoint_dir)
         if resume is None:
-
-            print(
-                "No checkpoint found, starting from step 0"
-            )
-
+            print("No checkpoint found, starting from step 0")
             return 0
 
-
-
     step = load_checkpoint(
-
         resume,
-
         model,
-
         optimizer,
-
+        scheduler=scheduler,
         ema=ema,
-
         device=device
-
     )
 
-
-    print(
-        f"Resumed from {resume} (step {step})"
-    )
-
-
+    print(f"Resumed from {resume} (step {step})")
     return step
-
 
 
 # ============================================================================

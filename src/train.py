@@ -132,6 +132,13 @@ class VAETrainer(BaseTrainer):
     def __init__(self, cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler=None, ema=None, logger=None, evaluators=None):
         super().__init__(cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler, ema, logger, evaluators)
     def setup(self):
+
+        self.start_step  = maybe_resume(cfg=self.cfg,
+                                         model=self.raw_model,
+                                         optimizer=self.optimizer,
+                                         scheduler=self.scheduler
+                                         ema=self.ema,
+                                         device=self.device)
                 
         self.model, self.optimizer,self.scheduler, self.train_loader = (
             self.accelerator.prepare(
@@ -149,11 +156,6 @@ class VAETrainer(BaseTrainer):
         if self.cfg["train"]["use_compile"]:
             self.model = torch.compile(self.model)
                     
-        self.start_step  = maybe_resume(cfg=self.cfg,
-                                 model=self.raw_model,
-                                 optimizer=self.optimizer,
-                                 ema=self.ema,
-                                 device=self.device)
 
         self.total_steps =  self.cfg["train"]["total_steps"]
         self.train_iter = InfiniteDataLoader(self.train_loader)
@@ -219,13 +221,13 @@ class VAETrainer(BaseTrainer):
         if not self.accelerator.is_main_process:
             return
         path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_{step}.pt")
-        save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,ema=self.ema,epoch=step,cfg=self.cfg,scaling_factor=self.scaling_factor)
+        save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,ema=self.ema,epoch=step,cfg=self.cfg,scaling_factor=self.scaling_factor,scheduler=self.scheduler)
     def save_final_checkpoint(self):
 
         if not self.accelerator.is_main_process:
             return
         path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_final.pt")
-        save_checkpoint(path=path, model=self.raw_model, optimizer=self.optimizer, ema=self.ema, epoch=self.total_steps, cfg=self.cfg,scaling_factor=self.scaling_factor)
+        save_checkpoint(path=path, model=self.raw_model, optimizer=self.optimizer, ema=self.ema, epoch=self.total_steps, cfg=self.cfg,scaling_factor=self.scaling_factor,scheduler=self.scheduler)
 
     def save_best_checkpoint(self):
         if not self.accelerator.is_main_process:
@@ -307,6 +309,12 @@ class DiTTrainer(BaseTrainer):
             self.distill_scheduler = ELTSchedule(cfg["elt"]["distillation"],cfg["train"]["total_steps"])
 
     def setup(self):
+        self.start_step  = maybe_resume(cfg=self.cfg,
+                                                 model=self.raw_model,
+                                                 optimizer=self.optimizer,
+                                                 ema=self.ema,
+                                                 device=self.device)
+                
         self.model, self.optimizer,self.scheduler, self.train_loader = (
                     self.accelerator.prepare(
                         self.model,
@@ -328,11 +336,6 @@ class DiTTrainer(BaseTrainer):
         self.raw_model = self.accelerator.unwrap_model(self.model)
         if self.cfg["train"]["use_compile"]:
             self.model = torch.compile(self.model)
-        self.start_step  = maybe_resume(cfg=self.cfg,
-                                         model=self.raw_model,
-                                         optimizer=self.optimizer,
-                                         ema=self.ema,
-                                         device=self.device)
         
         self.total_steps =  self.cfg["train"]["total_steps"]
         self.train_iter = InfiniteDataLoader(self.train_loader)
