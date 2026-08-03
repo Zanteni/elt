@@ -366,7 +366,6 @@ class DiTTrainer(BaseTrainer):
         images = extract_images(batch)
         labels = extract_labels(batch) if self.cfg["conditioning"]["enabled"] else None
         with torch.no_grad():
-            from data import compute_scaling_factor
             mu, logvar = self.vae.encoder(images)
             latents = mu*self.scaling_factor
             
@@ -426,8 +425,18 @@ class DiTTrainer(BaseTrainer):
             return
         if not self.accelerator.is_main_process:
             return
-        self.run_evaluation(step)
-                
+        
+        results = self.run_evaluation(step)
+        current = results["fid"]["metrics"]["fid"]
+        if current < self.best_metric:
+            self.best_metric = current
+            self.best_step = step
+            self.best_state = {
+                "model": copy.deepcopy(self.raw_model.state_dict()),
+                "ema": copy.deepcopy(self.ema.shadow) if self.ema is not None else None,
+            }
+            print(f"step {step}: new best fid={current:.4f} (will save at end of training)")
+                    
     def sample(self):
         sampler = build_sampler(cfg=self.cfg,model=self.raw_model,device=self.device,vae=self.vae,diffusion=self.diffusion,scaling_factor=self.scaling_factor)
         outputs = sampler.generate()
