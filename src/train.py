@@ -414,7 +414,7 @@ class DiTTrainer(BaseTrainer):
             if self.scheduler is not None:
                 self.scheduler.step()
         if self.ema is not None:
-            self.ema.update(self.raw_model)
+            self.ema.update(self.raw_model,step=step)
         return {
             "losses": losses,
             "batch_size": images.size(0),
@@ -456,7 +456,10 @@ class DiTTrainer(BaseTrainer):
             return
         metrics = self.get_running_metrics()
         if self.accelerator.is_main_process:
-            wandb.log({**{f"train/{k}": v for k,v in metrics.items()},"step": step})
+            current_lr = self.scheduler.get_last_lr()[0] if self.scheduler is not None else self.optimizer.param_groups[0]["lr"]
+            wandb.log({**{f"train/{k}": v for k,v in metrics.items()}, "train/lr": current_lr, "step": step})
+            if step % 10000 == 0:
+                print(f"step {step} | lr: {current_lr:.6e}")
             print(f"step {step} | "+" ".join(f"{k}: {v:.5f}"for k,v in metrics.items()))
         self.reset_running_losses()
         
