@@ -16,7 +16,7 @@ model:
 
     num_classes: 10
 
-    cfg_dropout: 0.0
+    cfg_dropout: 0.1
 
     dropout: 0.0
 
@@ -28,8 +28,8 @@ model:
 
 
 vae:
+  checkpoint: checkpoints/vae_run2/vae_run2_best.pt
 
-  checkpoint: checkpoints/vae_final.pt
 elt:
   enabled: false
 # ============================================================
@@ -82,8 +82,8 @@ loss:
 
   diffusion: mse
 train:
-
   resume: null
+  total_steps: 200000
 
 conditioning:
   enabled: true

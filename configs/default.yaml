@@ -74,9 +74,6 @@ train:
   ckpt_every: 5000
 
   checkpoints_dir: checkpoints
-
-  ema_decay: 0.9999
-
   deterministic: false
 
 repa:
