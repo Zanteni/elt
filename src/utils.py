@@ -624,7 +624,12 @@ class EMA:
 
 
     @torch.no_grad()
-    def update(self, model):
+    def update(self, model, step=None):
+
+        if step is not None:
+            decay = min(self.decay, (1 + step) / (10 + step))
+        else:
+            decay = self.decay
 
         for name, param in model.named_parameters():
 
@@ -636,17 +641,8 @@ class EMA:
                     shadow = shadow.to(param.device)
                     self.shadow[name] = shadow
 
-
-                shadow.mul_(
-                    self.decay
-                )
-
-                shadow.add_(
-                    param.data,
-                    alpha=1 - self.decay
-                )
-
-
+                shadow.mul_(decay)
+                shadow.add_(param.data, alpha=1 - decay)
 
     def apply_shadow(self, model):
 
