@@ -100,29 +100,7 @@ def get_next_run_number(base_dir, model_name):
     for d in existing:
         suffix = d[len(prefix):]
         if suffix.isdigit():
-            run_nums.append(int(suffix))feat(checkpoint): run-numbered checkpoints + DiT best-checkpoint tracking via FID
-
-utils.py:
-- get_next_run_number: scans checkpoints_dir for existing
-  {model_name}_runN folders, returns next available N
-- setup_environment: derives checkpoint_dir as
-  {checkpoints_dir}/{model_name}_run{N}; run_number is read from
-  config if set explicitly, otherwise auto-incremented from disk
-  (reliable here since training runs persist on the VM); stores
-  cfg["run_number"] for use in checkpoint filenames
-
-trainer.py:
-- VAETrainer: save_checkpoint / save_final_checkpoint /
-  save_best_checkpoint filenames now include run{run_number}
-- DiTTrainer: save_checkpoint / save_final_checkpoint filenames now
-  include run{run_number}
-- DiTTrainer.setup: init self.best_metric = float("inf")
-- DiTTrainer.validate: track best FID during training (mirrors
-  VAETrainer's best-tracking pattern), stores model/EMA state in
-  memory without writing to disk
-- DiTTrainer.save_best_checkpoint: new method, writes best-tracked
-  weights to disk once, called at end of train() after
-  save_final_checkpoint()
+            run_nums.append(int(suffix))
     return max(run_nums, default=0) + 1
 
 
