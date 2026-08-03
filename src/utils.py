@@ -176,9 +176,10 @@ def build_logger(cfg, accelerator):
     project = f"elt-{cfg['model']['name']}"
 
     run_name = (
-        f"{cfg['model']['name']}:"
-        f"{cfg['model']['variant']}"
-    )
+            f"{cfg['model']['name']}:"
+            f"{cfg['model']['variant']}"
+            f":run{cfg['run_number']}"
+        )
 
     wandb.init(
         project=project,
