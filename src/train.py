@@ -113,14 +113,18 @@ class BaseTrainer:
     
     def run_evaluation(self, step):
         backup = self._use_ema()
+        results = {}
+
         try:
             self.raw_model.eval()
             for name,evaluator in self.evaluators.items():
                 result = evaluator.evaluate()
                 self._log_evaluation(step,name,result,)
+                results[name] = result
         finally:
             self._restore_ema(backup)
             self.raw_model.train()
+        return results
 
             
 class VAETrainer(BaseTrainer):
@@ -136,6 +140,7 @@ class VAETrainer(BaseTrainer):
                 self.train_loader,
                 )
             )
+        self.best_metric = float("inf") 
         self.scaling_factor = compute_scaling_factor(self.model, self.cfg, split="train", device=self.device)
         
         self.raw_model = self.accelerator.unwrap_model(self.model)
@@ -191,7 +196,16 @@ class VAETrainer(BaseTrainer):
             return
         if not self.accelerator.is_main_process:
             return
-        self.run_evaluation(step)
+        results = self.run_evaluation(step)
+        current = results["reconstruction"]["metrics"]["reconstruction_mse"]
+        if current < self.best_metric:
+            self.best_metric = current
+            save_checkpoint(
+                path=os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_best.pt"),
+                model=self.raw_model, optimizer=self.optimizer, scheduler=self.scheduler,
+                ema=self.ema, epoch=step, cfg=self.cfg,
+            )
+            print(f"step {step}: new best reconstruction_mse={current:.6f}, saved best checkpoint")
 
     def save_checkpoint(self, step):
 
@@ -323,28 +337,11 @@ class DiTTrainer(BaseTrainer):
             "history": None
         }
     def train_step(self,batch,step = None):
-        from data import compute_scaling_factor
-        from model import build_model
-        import torch
-        ckpt = torch.load("checkpoints/vae_final.pt", map_location="cpu")
-        vae = build_model(ckpt["config"])
-        vae.load_state_dict(ckpt["model"])
-        vae.eval()
-
-        fresh_factor = compute_scaling_factor(vae, cfg, split="train", device="cpu")
-        print(f"old: {ckpt.get('scaling_factor')}   new: {fresh_factor}")
-
-        ckpt["scaling_factor"] = fresh_factor
-        torch.save(ckpt, "checkpoints/vae_final.pt")
         images = extract_images(batch)
         labels = extract_labels(batch) if self.cfg["conditioning"]["enabled"] else None
         with torch.no_grad():
             from data import compute_scaling_factor
-
-            fresh = compute_scaling_factor(self.vae, self.cfg, split="train", device=self.device)
-            print(f"stored scaling_factor: {self.scaling_factor}   freshly computed: {fresh}")
             mu, logvar = self.vae.encoder(images)
-            print("scaling_factor in use:", self.scaling_factor)
             latents = mu*self.scaling_factor
             print(latents.std().item())
 
