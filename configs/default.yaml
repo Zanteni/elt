@@ -51,7 +51,7 @@ scheduler:
 
   warmup_steps: 5000
 
-  min_lr_ratio: 1e-7
+  min_lr_ratio: 0.01
 
 
 
