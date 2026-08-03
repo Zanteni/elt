@@ -369,8 +369,7 @@ class DiTTrainer(BaseTrainer):
             from data import compute_scaling_factor
             mu, logvar = self.vae.encoder(images)
             latents = mu*self.scaling_factor
-            print(latents.std().item())
-
+            
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
                 x_t,t,noise = self.diffusion(latents)
