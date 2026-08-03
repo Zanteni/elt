@@ -160,7 +160,7 @@ class VAETrainer(BaseTrainer):
         self.running_sums = {}
         self.running_count = 0
         
-    def train_step(self, batch):
+    def train_step(self, batch,step=None):
         images = extract_images(batch)
         with self.accelerator.accumulate(self.model):
             with self.accelerator.autocast():
@@ -174,7 +174,7 @@ class VAETrainer(BaseTrainer):
             if self.scheduler is not None:
                 self.scheduler.step()
         if self.ema is not None:
-            self.ema.update(self.raw_model)
+            self.ema.update(self.raw_model,step =step)
         return {
             "losses": losses,
             "batch_size": images.size(0)
@@ -246,7 +246,7 @@ class VAETrainer(BaseTrainer):
         self.setup()
         for step in range(self.start_step, self.total_steps):
             batch = next(self.train_iter)
-            train_output = self.train_step(batch)
+            train_output = self.train_step(batch,step)
             self.log(step, train_output)
             self.validate(step)
             self.save_checkpoint(step)
@@ -268,8 +268,10 @@ def build_vae_trainer(cfg):
     model = build_model(cfg)
     criterion = build_loss(cfg)
     optimizer = build_optimizer(model, cfg)
-    scheduler = build_scheduler(optimizer, cfg)  
-    ema = EMA(model, decay=float(cfg["train"]["ema_decay"]))
+    scheduler = build_scheduler(optimizer, cfg) 
+    window = cfg["train"]["ema_window_ratio"] * cfg["train"]["total_steps"]
+    ema_decay = 1 - 1 / window
+    ema = EMA(model, decay=ema_decay)
     evaluators = build_evaluators(cfg, model, loaders,device)  # <- needs loaders/fid_metric, see below
     return VAETrainer(
         cfg, model, optimizer, criterion, train_loader, accelerator, device,
@@ -504,7 +506,9 @@ def build_dit_trainer(cfg):
     criterion = build_loss(cfg)
     optimizer = build_optimizer(model,cfg)
     scheduler = build_scheduler(optimizer,cfg)
-    ema = EMA(model,decay=float(cfg["train"]["ema_decay"]))
+    window = cfg["train"]["ema_window_ratio"] * cfg["train"]["total_steps"]
+    ema_decay = 1 - 1 / window
+    ema = EMA(model, decay=ema_decay)
     # evaluation dependency
     fid_metric = build_fid_metric(cfg,device)
     evaluators = build_evaluators(cfg,model,loaders,device,vae=vae,diffusion=diffusion,fid_metric=fid_metric,scaling_factor=scaling_factor)
