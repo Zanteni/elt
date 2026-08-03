@@ -276,8 +276,9 @@ def build_constant_schedule(optimizer, cfg):
     return None  # VAETrainer already guards scheduler=None correctly -- no fake no-op object needed
 
 def build_linear_warmup_cosine_schedule(optimizer, cfg):
-    warmup_steps = cfg["scheduler"].get("warmup_steps", 0)
-    total_steps = cfg["train"]["total_steps"]  
+    total_steps = cfg["train"]["total_steps"]
+    warmup_ratio = float(cfg["scheduler"].get("warmup_ratio", 0.0))
+    warmup_steps = int(warmup_ratio * total_steps)
     min_lr_ratio = float(cfg["scheduler"].get("min_lr_ratio", 0.0))
 
     def lr_lambda(step):
@@ -289,10 +290,22 @@ def build_linear_warmup_cosine_schedule(optimizer, cfg):
 
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
+def build_linear_warmup_constant_schedule(optimizer, cfg):
+    total_steps = cfg["train"]["total_steps"]
+    warmup_ratio = float(cfg["scheduler"].get("warmup_ratio", 0.0))
+    warmup_steps = int(warmup_ratio * total_steps)
+
+    def lr_lambda(step):
+        if step < warmup_steps:
+            return step / max(1, warmup_steps)
+        return 1.0
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 SCHEDULER_BUILDERS = {
     "constant": build_constant_schedule,
     "linear_warmup_cosine": build_linear_warmup_cosine_schedule,
+    "linear_warmup_constant": build_linear_warmup_constant_schedule,
 }
 
 def build_scheduler(optimizer, cfg):
