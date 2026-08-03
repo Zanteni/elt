@@ -50,7 +50,7 @@ eval:
 
 diffusion:
 
-  schedule: cosine
+  schedule: linear
 
   timestep: 1000
 
@@ -74,7 +74,7 @@ sampling:
     num_images: 16
     batch_size: 16
     sampler: ddim
-    num_steps: 50
+    num_steps: 20
     guidance_scale: 7.0
     eta: 0.0
 
@@ -86,4 +86,4 @@ train:
   total_steps: 200000
 
 conditioning:
-  enabled: true
+  enabled: false
