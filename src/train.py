@@ -23,6 +23,7 @@ from losses import build_loss
 from  data import build_dataloader,extract_labels,compute_scaling_factor
 import  torch
 import wandb,os
+import copy
 
 # ============================================================
 # Base Trainer
@@ -180,13 +181,16 @@ class VAETrainer(BaseTrainer):
             }
 
     def log(self, step, train_output):
-        self.update_running_losses(train_output["losses"],train_output["batch_size"],)
+        self.update_running_losses(train_output["losses"], train_output["batch_size"])
         if step % self.cfg["train"]["log_every"] != 0:
             return
         metrics = self.get_running_metrics()
         if self.accelerator.is_main_process:
-            wandb.log({**{f"train/{k}":v for k,v in metrics.items()},"step":step})
-            print(f"step {step} | "+" ".join(f"{k}: {v:.5f}"for k,v in metrics.items()))
+            current_lr = self.scheduler.get_last_lr()[0] if self.scheduler is not None else self.optimizer.param_groups[0]["lr"]
+            wandb.log({**{f"train/{k}": v for k, v in metrics.items()}, "train/lr": current_lr, "step": step})
+            if step % 10000 == 0:
+                print(f"step {step} | lr: {current_lr:.6e}")
+            print(f"step {step} | " + " ".join(f"{k}: {v:.5f}" for k, v in metrics.items()))
         self.reset_running_losses()
 
     def validate(self, step):
@@ -200,12 +204,13 @@ class VAETrainer(BaseTrainer):
         current = results["reconstruction"]["metrics"]["reconstruction_mse"]
         if current < self.best_metric:
             self.best_metric = current
-            save_checkpoint(
-                path=os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_best.pt"),
-                model=self.raw_model, optimizer=self.optimizer, scheduler=self.scheduler,
-                ema=self.ema, epoch=step, cfg=self.cfg,
-            )
-            print(f"step {step}: new best reconstruction_mse={current:.6f}, saved best checkpoint")
+            self.best_step = step
+            # track the state, but don't save to disk yet
+            self.best_state = {
+                "model": copy.deepcopy(self.raw_model.state_dict()),
+                "ema": copy.deepcopy(self.ema.shadow) if self.ema is not None else None,
+            }
+            print(f"step {step}: new best reconstruction_mse={current:.6f} (will save at end of training)")
 
     def save_checkpoint(self, step):
 
@@ -222,6 +227,21 @@ class VAETrainer(BaseTrainer):
         path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_final.pt")
         save_checkpoint(path=path, model=self.raw_model, optimizer=self.optimizer, ema=self.ema, epoch=self.total_steps, cfg=self.cfg,scaling_factor=self.scaling_factor)
 
+    def save_best_checkpoint(self):
+        if not self.accelerator.is_main_process:
+            return
+        if not hasattr(self, "best_state"):
+            return
+        path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_best.pt")
+        # temporarily load best weights into raw_model, save, then restore current weights
+        current_state = copy.deepcopy(self.raw_model.state_dict())
+        self.raw_model.load_state_dict(self.best_state["model"])
+        save_checkpoint(
+            path=path, model=self.raw_model, optimizer=self.optimizer,
+            scheduler=self.scheduler, ema=self.ema, epoch=self.best_step, cfg=self.cfg,
+            scaling_factor=self.scaling_factor,
+        )
+        self.raw_model.load_state_dict(current_state)
     def train(self):
         self.setup()
         for step in range(self.start_step, self.total_steps):
@@ -231,6 +251,7 @@ class VAETrainer(BaseTrainer):
             self.validate(step)
             self.save_checkpoint(step)
         self.save_final_checkpoint()
+        self.save_best_checkpoint()
 
 def build_vae_trainer(cfg):
     set_seed(cfg["seed"])
