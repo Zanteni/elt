@@ -46,13 +46,8 @@ optimizer:
 # ============================================================
 
 scheduler:
-
-  name: linear_warmup_cosine
-
-  warmup_steps: 5000
-
-  min_lr_ratio: 0.01
-
+  name: linear_warmup_constant
+  warmup_ratio: 0.05
 
 
 # ============================================================

@@ -91,52 +91,67 @@ def set_seed(seed):
 # Environment setup
 # ============================================================================
 
+def get_next_run_number(base_dir, model_name):
+    if not os.path.exists(base_dir):
+        return 1
+    prefix = f"{model_name}_run"
+    existing = [d for d in os.listdir(base_dir) if d.startswith(prefix)]
+    run_nums = []
+    for d in existing:
+        suffix = d[len(prefix):]
+        if suffix.isdigit():
+            run_nums.append(int(suffix))feat(checkpoint): run-numbered checkpoints + DiT best-checkpoint tracking via FID
+
+utils.py:
+- get_next_run_number: scans checkpoints_dir for existing
+  {model_name}_runN folders, returns next available N
+- setup_environment: derives checkpoint_dir as
+  {checkpoints_dir}/{model_name}_run{N}; run_number is read from
+  config if set explicitly, otherwise auto-incremented from disk
+  (reliable here since training runs persist on the VM); stores
+  cfg["run_number"] for use in checkpoint filenames
+
+trainer.py:
+- VAETrainer: save_checkpoint / save_final_checkpoint /
+  save_best_checkpoint filenames now include run{run_number}
+- DiTTrainer: save_checkpoint / save_final_checkpoint filenames now
+  include run{run_number}
+- DiTTrainer.setup: init self.best_metric = float("inf")
+- DiTTrainer.validate: track best FID during training (mirrors
+  VAETrainer's best-tracking pattern), stores model/EMA state in
+  memory without writing to disk
+- DiTTrainer.save_best_checkpoint: new method, writes best-tracked
+  weights to disk once, called at end of train() after
+  save_final_checkpoint()
+    return max(run_nums, default=0) + 1
+
+
 def setup_environment(cfg):
 
     train_cfg = cfg["train"]
 
+    torch.backends.cudnn.benchmark = train_cfg.get("benchmark", True)
+    torch.backends.cudnn.deterministic = train_cfg.get("deterministic", False)
 
-    torch.backends.cudnn.benchmark = train_cfg.get(
-        "benchmark",
-        True
-    )
-
-
-    torch.backends.cudnn.deterministic = train_cfg.get(
-        "deterministic",
-        False
-    )
-
-
-    allow_tf32 = train_cfg.get(
-        "allow_tf32",
-        True
-    )
-
+    allow_tf32 = train_cfg.get("allow_tf32", True)
 
     if torch.cuda.is_available():
-
         torch.backends.cuda.matmul.allow_tf32 = allow_tf32
-
         torch.backends.cudnn.allow_tf32 = allow_tf32
 
+    base_dir = train_cfg.get("checkpoints_dir", "checkpoints")
+    model_name = cfg["model"]["name"]
 
+    run_number = train_cfg.get("run_number", None)
+    if run_number is None:
+        run_number = get_next_run_number(base_dir, model_name)
 
-    checkpoint_dir = train_cfg.get(
-        "checkpoints_dir",
-        "checkpoints"
-    )
+    checkpoint_dir = os.path.join(base_dir, f"{model_name}_run{run_number}")
+    os.makedirs(checkpoint_dir, exist_ok=True)
 
-
-    os.makedirs(
-        checkpoint_dir,
-        exist_ok=True
-    )
-
+    cfg["run_number"] = run_number
 
     return checkpoint_dir
-
-
 
 # ============================================================================
 # Accelerator

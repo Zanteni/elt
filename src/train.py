@@ -219,13 +219,13 @@ class VAETrainer(BaseTrainer):
             return
         if not self.accelerator.is_main_process:
             return
-        path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_{step}.pt")
+        path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_run{self.cfg['run_number']}_{step}.pt")
         save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,ema=self.ema,epoch=step,cfg=self.cfg,scaling_factor=self.scaling_factor,scheduler=self.scheduler)
     def save_final_checkpoint(self):
 
         if not self.accelerator.is_main_process:
             return
-        path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_final.pt")
+        path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_run{self.cfg['run_number']}_final.pt")
         save_checkpoint(path=path, model=self.raw_model, optimizer=self.optimizer, ema=self.ema, epoch=self.total_steps, cfg=self.cfg,scaling_factor=self.scaling_factor,scheduler=self.scheduler)
 
     def save_best_checkpoint(self):
@@ -233,7 +233,7 @@ class VAETrainer(BaseTrainer):
             return
         if not hasattr(self, "best_state"):
             return
-        path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_best.pt")
+        path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_run{self.cfg['run_number']}_best.pt")
         # temporarily load best weights into raw_model, save, then restore current weights
         current_state = copy.deepcopy(self.raw_model.state_dict())
         self.raw_model.load_state_dict(self.best_state["model"])
@@ -316,7 +316,7 @@ class DiTTrainer(BaseTrainer):
                         self.train_loader,
                         )
                     )
-        
+        self.best_metric = float("inf")
         freeze_model(self.vae)
         if self.repa_encoder is not None:
             freeze_model(self.repa_encoder)
@@ -468,13 +468,27 @@ class DiTTrainer(BaseTrainer):
             return
         if not self.accelerator.is_main_process:
             return
-        path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_{step}.pt")
+        path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_run{self.cfg['run_number']}_{step}.pt")
         save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,scheduler=self.scheduler,ema=self.ema,epoch=step,cfg=self.cfg)
+
+    def save_best_checkpoint(self):
+        if not self.accelerator.is_main_process:
+            return
+        if not hasattr(self, "best_state"):
+            return
+        path = os.path.join(self.checkpoint_dir, f"{self.cfg['model']['name']}_run{self.cfg['run_number']}_best.pt")
+        current_state = copy.deepcopy(self.raw_model.state_dict())
+        self.raw_model.load_state_dict(self.best_state["model"])
+        save_checkpoint(
+            path=path, model=self.raw_model, optimizer=self.optimizer,
+            scheduler=self.scheduler, ema=self.ema, epoch=self.best_step, cfg=self.cfg,
+        )
+        self.raw_model.load_state_dict(current_state)
 
     def save_final_checkpoint(self):
         if not self.accelerator.is_main_process:
             return
-        path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_final.pt")
+        path = os.path.join(self.checkpoint_dir,f"{self.cfg['model']['name']}_run{self.cfg['run_number']}_final.pt")
         save_checkpoint(path=path,model=self.raw_model,optimizer=self.optimizer,scheduler=self.scheduler,ema=self.ema,epoch=self.total_steps,cfg=self.cfg)
 
     def train(self):
@@ -487,6 +501,7 @@ class DiTTrainer(BaseTrainer):
             self.maybe_sample(step)
             self.save_checkpoint(step)
         self.save_final_checkpoint()
+        self.save_best_checkpoint()
 
 # DIT FACTORY
 def build_dit_trainer(cfg):
