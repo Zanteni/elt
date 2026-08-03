@@ -132,14 +132,6 @@ class VAETrainer(BaseTrainer):
     def __init__(self, cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler=None, ema=None, logger=None, evaluators=None):
         super().__init__(cfg, model, optimizer, criterion, train_loader, accelerator, device, checkpoint_dir, scheduler, ema, logger, evaluators)
     def setup(self):
-
-        self.start_step  = maybe_resume(cfg=self.cfg,
-                                         model=self.raw_model,
-                                         optimizer=self.optimizer,
-                                         scheduler=self.scheduler,
-                                         ema=self.ema,
-                                         device=self.device)
-                
         self.model, self.optimizer,self.scheduler, self.train_loader = (
             self.accelerator.prepare(
                 self.model,
@@ -155,6 +147,13 @@ class VAETrainer(BaseTrainer):
 
         if self.cfg["train"]["use_compile"]:
             self.model = torch.compile(self.model)
+        self.start_step  = maybe_resume(cfg=self.cfg,
+                                         model=self.raw_model,
+                                         optimizer=self.optimizer,
+                                         scheduler=self.scheduler,
+                                         ema=self.ema,
+                                         device=self.device)
+                
                     
 
         self.total_steps =  self.cfg["train"]["total_steps"]
@@ -309,12 +308,6 @@ class DiTTrainer(BaseTrainer):
             self.distill_scheduler = ELTSchedule(cfg["elt"]["distillation"],cfg["train"]["total_steps"])
 
     def setup(self):
-        self.start_step  = maybe_resume(cfg=self.cfg,
-                                                 model=self.raw_model,
-                                                 optimizer=self.optimizer,
-                                                 ema=self.ema,
-                                                 device=self.device)
-                
         self.model, self.optimizer,self.scheduler, self.train_loader = (
                     self.accelerator.prepare(
                         self.model,
@@ -336,6 +329,12 @@ class DiTTrainer(BaseTrainer):
         self.raw_model = self.accelerator.unwrap_model(self.model)
         if self.cfg["train"]["use_compile"]:
             self.model = torch.compile(self.model)
+        self.start_step  = maybe_resume(cfg=self.cfg,
+                                         model=self.raw_model,
+                                         optimizer=self.optimizer,
+                                         scheduler=self.scheduler,
+                                         ema=self.ema,
+                                         device=self.device)
         
         self.total_steps =  self.cfg["train"]["total_steps"]
         self.train_iter = InfiniteDataLoader(self.train_loader)
