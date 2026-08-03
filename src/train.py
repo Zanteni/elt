@@ -136,7 +136,7 @@ class VAETrainer(BaseTrainer):
         self.start_step  = maybe_resume(cfg=self.cfg,
                                          model=self.raw_model,
                                          optimizer=self.optimizer,
-                                         scheduler=self.scheduler
+                                         scheduler=self.scheduler,
                                          ema=self.ema,
                                          device=self.device)
                 
