@@ -2,7 +2,7 @@ model:
 
   name: dit
 
-  variant: DiT-S
+  variant: DiT-B
 
 
   dit:
