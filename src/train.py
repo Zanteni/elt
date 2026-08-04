@@ -325,18 +325,18 @@ class DiTTrainer(BaseTrainer):
             self.repa_encoder.eval()
         self.vae.to(self.device)
         self.vae.eval()
+
+        self.scaling_factor = compute_scaling_factor(self.vae, self.cfg, split="train", device=self.device)
+        print(f"scaling_factor (computed fresh): {self.scaling_factor}")
+
         self.diffusion.to(self.device)
         self.diffusion.eval()
         self.raw_model = self.accelerator.unwrap_model(self.model)
         if self.cfg["train"]["use_compile"]:
             self.model = torch.compile(self.model)
-        self.start_step  = maybe_resume(cfg=self.cfg,
-                                         model=self.raw_model,
-                                         optimizer=self.optimizer,
-                                         scheduler=self.scheduler,
-                                         ema=self.ema,
-                                         device=self.device)
-        
+        self.start_step = maybe_resume(cfg=self.cfg, model=self.raw_model,
+                                     optimizer=self.optimizer, ema=self.ema, device=self.device)
+
         self.total_steps =  self.cfg["train"]["total_steps"]
         self.train_iter = InfiniteDataLoader(self.train_loader)
         self.running_sums = {}
@@ -529,7 +529,9 @@ def build_dit_trainer(cfg):
     loaders = {"train": train_loader,"test": test_loader,}
     # models
     model = build_model(cfg)
-    vae,scaling_factor  = build_vae_from_checkpoint(cfg["vae"]["checkpoint"],device=device,freeze=True,return_scaling_factor=True)
+    vae= build_vae_from_checkpoint(cfg["vae"]["checkpoint"],device=device,freeze=True)
+    scaling_factor = compute_scaling_factor(vae, cfg, split="train", device=device)
+    print(f"scaling_factor (computed fresh): {scaling_factor}")
     diffusion = build_diffusion(cfg)
     # training objects
     criterion = build_loss(cfg)

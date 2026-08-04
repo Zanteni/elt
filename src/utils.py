@@ -811,7 +811,7 @@ class InfiniteDataLoader:
                 self.iterator
             )
 
-def build_vae_from_checkpoint(path, device="cpu", freeze=True, return_scaling_factor=False):
+def build_vae_from_checkpoint(path, device="cpu", freeze=True):
     checkpoint = torch.load(path, map_location=device)
     cfg = checkpoint["config"]
 
@@ -823,15 +823,7 @@ def build_vae_from_checkpoint(path, device="cpu", freeze=True, return_scaling_fa
 
     if freeze:
         freeze_model(vae)
-
-    if return_scaling_factor:
-        if "scaling_factor" not in checkpoint:
-            raise ValueError(
-                f"Checkpoint at path {path} has no scaling_factor -- patch it "
-                f"with compute_scaling_factor() before using it for DiT training."
-            )
-        return vae, checkpoint["scaling_factor"]
-
+    
     return vae
 
 def denormalize(x):
