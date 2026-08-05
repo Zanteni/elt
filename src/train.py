@@ -335,7 +335,7 @@ class DiTTrainer(BaseTrainer):
         if self.cfg["train"]["use_compile"]:
             self.model = torch.compile(self.model)
         self.start_step = maybe_resume(cfg=self.cfg, model=self.raw_model,
-                                     optimizer=self.optimizer, ema=self.ema, device=self.device)
+                                     optimizer=self.optimizer,scheduler=self.scheduler, ema=self.ema, device=self.device)
 
         self.total_steps =  self.cfg["train"]["total_steps"]
         self.train_iter = InfiniteDataLoader(self.train_loader)
