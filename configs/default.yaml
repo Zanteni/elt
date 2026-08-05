@@ -72,7 +72,7 @@ train:
 
   log_every: 100
 
-  ckpt_every: 5000
+  ckpt_every: 10000
 
   checkpoints_dir: checkpoints
   deterministic: false
