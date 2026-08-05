@@ -1,29 +1,87 @@
+# =========================
 # Python
+# =========================
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
-# Virtual environment
+# Python environments
+venv/
 .venv/
+env/
+ENV/
 
-# IDE
-.vscode/
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
 
+# =========================
+# Data
+# =========================
+data/
+datasets/
+*.zip
+*.tar
+*.tar.gz
+
+# =========================
 # Model checkpoints
+# =========================
 checkpoints/
+weights/
+pretrained/
 *.pt
 *.pth
 *.ckpt
+*.bin
+*.safetensors
 
-# Temporary files
+# =========================
+# Experiment outputs
+# =========================
+outputs/
+runs/
+results/
+samples/
+generated/
+logs/
 
+# TensorBoard
+tensorboard/
+events.out.tfevents.*
 
-temp/
-
-# Experiment tracking
+# Weights & Biases
 wandb/
 
-# Test artifacts
+# =========================
+# Configuration secrets
+# =========================
+.env
+*.env
 
-src/0*_test_*.py
-test.pt
-tatusgit commit --amend --no-edit
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# IDE / Editors
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Temporary files
+# =========================
+*.tmp
+*.temp
+*.log
+*.bak
+*.swp
