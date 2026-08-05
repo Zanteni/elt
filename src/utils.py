@@ -91,10 +91,11 @@ def set_seed(seed):
 # Environment setup
 # ============================================================================
 
-def get_next_run_number(base_dir, model_name):
+def get_next_run_number(base_dir, run_name):
+
     if not os.path.exists(base_dir):
         return 1
-    prefix = f"{model_name}_run"
+    prefix = f"{run_name}_run"
     existing = [d for d in os.listdir(base_dir) if d.startswith(prefix)]
     run_nums = []
     for d in existing:
@@ -103,6 +104,15 @@ def get_next_run_number(base_dir, model_name):
             run_nums.append(int(suffix))
     return max(run_nums, default=0) + 1
 
+def build_experiment_name(cfg):
+
+    model = cfg["model"]["name"]
+
+    dataset = cfg["data"]["dataset"]
+
+    size = cfg["data"]["image_size"]
+
+    return f"{model}_{dataset}_{size}"
 
 def setup_environment(cfg):
 
@@ -118,13 +128,13 @@ def setup_environment(cfg):
         torch.backends.cudnn.allow_tf32 = allow_tf32
 
     base_dir = train_cfg.get("checkpoints_dir", "checkpoints")
-    model_name = cfg["model"]["name"]
+    experiment_name = build_experiment_name(cfg)
 
     run_number = train_cfg.get("run_number", None)
     if run_number is None:
-        run_number = get_next_run_number(base_dir, model_name)
+        run_number = get_next_run_number(base_dir, experiment_name)
 
-    checkpoint_dir = os.path.join(base_dir, f"{model_name}_run{run_number}")
+    checkpoint_dir = os.path.join(base_dir, f"{experiment_name}_run{run_number}")
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     cfg["run_number"] = run_number
@@ -176,10 +186,10 @@ def build_logger(cfg, accelerator):
     project = f"elt-{cfg['model']['name']}"
 
     run_name = (
-            f"{cfg['model']['name']}:"
-            f"{cfg['model']['variant']}"
-            f":run{cfg['run_number']}"
-        )
+        f"{build_experiment_name(cfg)}:"
+        f"{cfg['model']['variant']}"
+        f":run{cfg['run_number']}"
+    )
 
     wandb.init(
         project=project,
