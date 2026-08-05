@@ -7,15 +7,15 @@ seed: 42
 
 data:
 
-  root: ./root
+  root: ./data/celeba_hq
 
-  dataset: cifar10
+  dataset: celeba_hq
 
-  image_size: 32
+  image_size: 256
 
-  batch_size: 128
+  batch_size: 8
 
-  num_workers: 4
+  num_workers: 8
 
 
 
@@ -29,7 +29,7 @@ optimizer:
 
   lr: 1.0e-5
 
-  weight_decay: 0.03
+  weight_decay: 0.01
 
   betas:
     - 0.9
@@ -56,7 +56,7 @@ scheduler:
 
 train:
 
-  total_steps: 100000
+  total_steps: 200000
   ema_window_ratio: 0.1
 
   mixed_precision: bf16
