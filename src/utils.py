@@ -108,7 +108,7 @@ def build_experiment_name(cfg):
 
     model = cfg["model"]["name"]
 
-    dataset = cfg["data"]["dataset"]
+    dataset = cfg["data"]["name"]
 
     size = cfg["data"]["image_size"]
 
