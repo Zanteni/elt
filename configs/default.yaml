@@ -6,8 +6,8 @@ seed: 42
 # ============================================================
 
 data:
-  name: celeba_hq
-  root: ./data/celeba_hq/celebahq256_imgs
+  name: imagenet100
+  root: ./data/imagenet100
   dataset: imagefolder
   image_size: 256
   batch_size: 8
