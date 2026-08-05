@@ -369,7 +369,7 @@ class DiTSampler(Sampler):
                 device=self.device,
             )
 
-            images = self.vae.decoder(latents/(self.scaling_factor+1e-7))
+            images = self.vae.decoder(latents/self.scaling_factor)
 
             all_latents.append(latents.cpu())
             all_images.append(images.cpu())

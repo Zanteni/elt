@@ -5,7 +5,8 @@
 import torch
 import torchvision.utils as vutils
 import matplotlib.pyplot as plt
-from utils  import sample_labels
+from utils  import sample_labels,denormalize
+
 from dataclasses import dataclass
 
 from data import extract_images
@@ -289,7 +290,7 @@ class FIDEvaluator(Evaluator):
                 images = images.to(self.device)
 
                 # [-1,1] -> [0,1]
-                images = (images + 1) / 2
+                images = denormalize(images)
                 self.metric.update(images,real=True)
 
             # Generated images
@@ -317,8 +318,8 @@ class FIDEvaluator(Evaluator):
                     device=self.device,
                 )
 
-                images = self.vae.decoder(z/(self.scaling_factor+1e-7))
-                images = (images + 1) / 2
+                images = self.vae.decoder(z/self.scaling_factor)
+                images = denormalize(images)
                 self.metric.update(images,real=False)
                 generated += batch_size
             fid = self.metric.compute().item()
