@@ -50,7 +50,7 @@ scheduler:
 
 train:
 
-  total_steps: 100
+  total_steps: 100000
   ema_window_ratio: 0.1
 
   mixed_precision: bf16
