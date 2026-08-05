@@ -6,9 +6,12 @@ seed: 42
 # ============================================================
 
 data:
+  root: ./data/celeba_hq/celebahq256_imgs
+  dataset: imagefolder
+  image_size: 256
   root: ./data/celeba_hq
   dataset: imagefolder
-  
+
   image_size: 256
 
   batch_size: 8
@@ -54,7 +57,7 @@ scheduler:
 
 train:
 
-  total_steps: 200000
+  total_steps: 100
   ema_window_ratio: 0.1
 
   mixed_precision: bf16
