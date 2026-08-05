@@ -2,7 +2,7 @@ model:
 
   name: dit
 
-  variant: DiT-B
+  variant: DiT-L
 
 
   dit:
@@ -83,7 +83,7 @@ loss:
   diffusion: mse
 train:
   resume: null
-  total_steps: 200000
+  total_steps: 300000
 
 conditioning:
   enabled: false

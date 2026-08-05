@@ -27,9 +27,9 @@ optimizer:
 
   name: adamw
 
-  lr: 1.0e-4
+  lr: 1.0e-5
 
-  weight_decay: 0.0
+  weight_decay: 0.03
 
   betas:
     - 0.9
@@ -47,7 +47,7 @@ optimizer:
 
 scheduler:
   name: linear_warmup_constant
-  warmup_ratio: 0.05
+  warmup_ratio: 0.1
 
 
 # ============================================================
