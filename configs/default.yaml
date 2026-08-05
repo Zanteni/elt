@@ -6,6 +6,7 @@ seed: 42
 # ============================================================
 
 data:
+  name: celeba_hq
   root: ./data/celeba_hq/celebahq256_imgs
   dataset: imagefolder
   image_size: 256
