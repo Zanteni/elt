@@ -82,7 +82,7 @@ loss:
 
   diffusion: mse
 train:
-  resume: null
+  resume: checkpoints/dit_run8/dit_run8_30000.pt
   total_steps: 300000
 
 conditioning:
