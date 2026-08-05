@@ -9,16 +9,8 @@ data:
   root: ./data/celeba_hq/celebahq256_imgs
   dataset: imagefolder
   image_size: 256
-  root: ./data/celeba_hq
-  dataset: imagefolder
-
-  image_size: 256
-
   batch_size: 8
-
   num_workers: 8
-
-
 
 # ============================================================
 # Optimizer
