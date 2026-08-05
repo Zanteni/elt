@@ -6,11 +6,9 @@ seed: 42
 # ============================================================
 
 data:
-
   root: ./data/celeba_hq
-
-  dataset: celeba_hq
-
+  dataset: imagefolder
+  
   image_size: 256
 
   batch_size: 8
