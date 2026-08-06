@@ -10,8 +10,8 @@ data:
   root: ./data/celeba_hq/celebahq256_imgs
   dataset: imagefolder
   image_size: 256
-  batch_size: 8
-  num_workers: 8
+  batch_size: 32
+  num_workers: 4
 # ============================================================
 # Optimizer
 # ============================================================
@@ -20,7 +20,7 @@ optimizer:
 
   name: adamw
 
-  lr: 1.0e-5
+  lr: 5.0e-5
 
   weight_decay: 0.01
 
@@ -50,7 +50,7 @@ scheduler:
 train:
 
   total_steps: 100000
-  ema_window_ratio: 0.1
+  ema_window_ratio: 0.01
 
   mixed_precision: bf16
 

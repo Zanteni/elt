@@ -2,7 +2,7 @@ model:
 
   name: dit
 
-  variant: DiT-S
+  variant: DiT-B
 
 
   dit:
@@ -38,14 +38,14 @@ elt:
 
 eval:
 
-  every: 1000
+  every: 5000
 
   fid:
     enabled: true
-    fid_num_samples: 1000
+    fid_num_samples: 5000
     sample_batch_size: 64
     ddim_steps: 50
-    guidance_scale: 7.0
+    guidance_scale: 1.0
     eta: 0.1
 
 diffusion:
