@@ -11,8 +11,8 @@ model:
 
     mlp_ratio: 4.0
 
-    grid_h: 8
-    grid_w: 8
+    grid_h: 32
+    grid_w: 32
 
     num_classes: null
 
